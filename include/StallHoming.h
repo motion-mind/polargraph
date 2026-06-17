@@ -112,7 +112,7 @@ public:
             // Read SG result every 16 steps (UART is slow)
             if (i % 16 == 0) {
                 if (!stalledL) {
-                    uint16_t sg = _driverL->sg_result();
+                    uint16_t sg = _driverL->SG_RESULT();
                     if (sg == 0) { debounceL++; } else { debounceL = 0; }
                     if (debounceL >= homingCfg.stallDebounce) {
                         stalledL = true;
@@ -120,7 +120,7 @@ public:
                     }
                 }
                 if (!stalledR) {
-                    uint16_t sg = _driverR->sg_result();
+                    uint16_t sg = _driverR->SG_RESULT();
                     if (sg == 0) { debounceR++; } else { debounceR = 0; }
                     if (debounceR >= homingCfg.stallDebounce) {
                         stalledR = true;
@@ -191,15 +191,15 @@ public:
             delayMicroseconds(iv);
             if (i % 64 == 0) {
                 Serial.printf("  SG L=%4u  SG R=%4u\n",
-                    _driverL->sg_result(), _driverR->sg_result());
+                    _driverL->SG_RESULT(), _driverR->SG_RESULT());
             }
         }
         enableStallGuard(false);
     }
 
     // ── Read live SG values (for web dashboard) ───────────────
-    uint16_t sgLeft()  { return _driverL ? _driverL->sg_result() : 0; }
-    uint16_t sgRight() { return _driverR ? _driverR->sg_result() : 0; }
+    uint16_t sgLeft()  { return _driverL ? _driverL->SG_RESULT() : 0; }
+    uint16_t sgRight() { return _driverR ? _driverR->SG_RESULT() : 0; }
     bool     isStallL(){ return sgLeft()  == 0; }
     bool     isStallR(){ return sgRight() == 0; }
 

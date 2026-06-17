@@ -39,7 +39,7 @@
 constexpr size_t QUEUE_SIZE = 64;   // enlarged: binary path feeds faster
 
 // ── Internal queue segment (ISR-ready, cord-space, pre-planned) ──
-struct IRAM_ATTR QueueSeg {
+struct QueueSeg {
     int32_t  deltaL;
     int32_t  deltaR;
     uint32_t dominant;        // max(|deltaL|, |deltaR|) — Bresenham count
@@ -64,9 +64,12 @@ public:
         _instance = this;
 
         _kin->homePosition(_posX, _posY);
-        _kin->cartesianToSteps(_posX, _posY, _curStepsL, _curStepsR);
-        _targetL = _curStepsL;
-        _targetR = _curStepsR;
+        int32_t initL, initR;
+        _kin->cartesianToSteps(_posX, _posY, initL, initR);
+        _curStepsL = initL;
+        _curStepsR = initR;
+        _targetL = initL;
+        _targetR = initR;
         _targetX = _posX;
         _targetY = _posY;
 
@@ -231,7 +234,7 @@ private:
     // ── Push a QueueSeg to the ring ───────────────────────────
     void pushSeg(const QueueSeg& seg) {
         noInterrupts();
-        _queue[_head] = seg;
+        memcpy((void*)&_queue[_head], &seg, sizeof(QueueSeg));
         _head = (_head + 1) % QUEUE_SIZE;
         interrupts();
     }
@@ -300,7 +303,7 @@ private:
                 return;
             }
             // Copy segment out of volatile ring (one cache line)
-            _isrSeg    = self->_queue[self->_tail];
+            memcpy((void*)&_isrSeg, (const void*)&self->_queue[self->_tail], sizeof(QueueSeg));
             self->_tail = (self->_tail + 1) % QUEUE_SIZE;
             _isrDone   = 0;
             _isrActive = true;

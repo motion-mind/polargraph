@@ -80,10 +80,10 @@ public:
         if (!_driverL) return;
         Serial.printf("  TMC Left  OT:%d OTP:%d S2G:%d S2VS:%d STST:%d\n",
             _driverL->ot(), _driverL->otpw(),
-            _driverL->s2g(), _driverL->s2vs(), _driverL->stst());
+            _driverL->s2ga(), _driverL->s2vsa(), _driverL->stst());
         Serial.printf("  TMC Right OT:%d OTP:%d S2G:%d S2VS:%d STST:%d\n",
             _driverR->ot(), _driverR->otpw(),
-            _driverR->s2g(), _driverR->s2vs(), _driverR->stst());
+            _driverR->s2ga(), _driverR->s2vsa(), _driverR->stst());
     }
 
 private:
