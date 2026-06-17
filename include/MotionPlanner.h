@@ -172,16 +172,8 @@ public:
         }
     }
 
-    // ── E-stop ────────────────────────────────────────────────
-    IRAM_ATTR void eStop() {
-        noInterrupts();
-        _head = _tail = 0;
-        _executing = false;
-        interrupts();
-        _drv->disable();
-        if (_servo) _servo->penUp();
-        Serial.println(F("!! ESTOP"));
-    }
+    // ── E-stop — definition in MotionPlanner.cpp ─────────────
+    IRAM_ATTR void eStop();
 
     // ── Accessors ─────────────────────────────────────────────
     bool   isBusy()     const { return !queueEmpty() || _executing; }
@@ -287,113 +279,8 @@ private:
         seg.decelSteps = (uint16_t)((dDecel / lenMm) * seg.dominant);
     }
 
-    // ══════════════════════════════════════════════════════════
-    // Hardware timer ISR — IRAM, no float, no division
-    // ══════════════════════════════════════════════════════════
-    static void IRAM_ATTR timerISR() {
-        MotionPlanner* self = _instance;
-        if (!self) return;
-
-        // ── Load next segment if idle ──────────────────────────
-        if (!_isrActive) {
-            if (self->_head == self->_tail) {
-                // Queue empty — fire again slowly
-                timerAlarmWrite(self->_timer, 5000, true);
-                self->_executing = false;
-                return;
-            }
-            // Copy segment out of volatile ring (one cache line)
-            memcpy((void*)&_isrSeg, (const void*)&self->_queue[self->_tail], sizeof(QueueSeg));
-            self->_tail = (self->_tail + 1) % QUEUE_SIZE;
-            _isrDone   = 0;
-            _isrActive = true;
-            self->_executing = true;
-
-            // Pen down at segment start
-            if ((_isrSeg.flags & PLG_PEN_DOWN) && self->_servo) {
-                self->_servo->penDown();
-            }
-
-            // Bresenham init
-            _isrErrL = (int32_t)(_isrSeg.dominant >> 1);
-            _isrErrR = (int32_t)(_isrSeg.dominant >> 1);
-
-            // Velocity: start at entryInterval (in fixed-point ×65536)
-            _isrIntervalFP = (uint32_t)_isrSeg.entryInterval << 16;
-
-            timerAlarmWrite(self->_timer, _isrSeg.entryInterval, true);
-            return;  // first tick just loads the segment
-        }
-
-        // ── Segment complete? ──────────────────────────────────
-        if (_isrDone >= _isrSeg.dominant) {
-            // Pen up at segment end
-            if ((_isrSeg.flags & PLG_PEN_UP) && self->_servo) {
-                self->_servo->penUp();
-            }
-            _isrActive       = false;
-            self->_executing = false;
-            timerAlarmWrite(self->_timer, 5000, true);  // coast until next load
-            return;
-        }
-
-        // ── Velocity update (integer, no division) ────────────
-        // We use the recurrence:
-        //   On accel: reduce interval by  interval / (2 × stepNumber)
-        //   On decel: increase interval by interval / (2 × stepsLeft)
-        // Approximated in fixed-point as a multiply by a lookup-free fraction.
-        //
-        // Simpler and sufficiently accurate for a plotter:
-        // linearly interpolate the interval across the ramp region.
-        // The interpolation uses only adds and shifts.
-        {
-            uint32_t interval;
-            if (_isrDone < _isrSeg.accelSteps && _isrSeg.accelSteps > 0) {
-                // Accel: entry → cruise
-                // interval = entry - (entry - cruise) * done / accelSteps
-                uint32_t delta = (_isrSeg.entryInterval > _isrSeg.cruiseInterval)
-                    ? _isrSeg.entryInterval - _isrSeg.cruiseInterval : 0;
-                interval = _isrSeg.entryInterval
-                           - (uint32_t)(((uint64_t)delta * _isrDone) / _isrSeg.accelSteps);
-            } else {
-                uint32_t decelStart = _isrSeg.dominant - _isrSeg.decelSteps;
-                if (_isrSeg.decelSteps > 0 && _isrDone >= decelStart) {
-                    // Decel: cruise → exit
-                    uint32_t d = _isrDone - decelStart;
-                    uint32_t delta = (_isrSeg.exitInterval > _isrSeg.cruiseInterval)
-                        ? _isrSeg.exitInterval - _isrSeg.cruiseInterval : 0;
-                    interval = _isrSeg.cruiseInterval
-                               + (uint32_t)(((uint64_t)delta * d) / _isrSeg.decelSteps);
-                } else {
-                    interval = _isrSeg.cruiseInterval;
-                }
-            }
-            if (interval < 20)     interval = 20;      // 50 kHz hard cap
-            if (interval > 65535)  interval = 65535;
-            timerAlarmWrite(self->_timer, interval, true);
-        }
-
-        // ── Bresenham step ────────────────────────────────────
-        bool doL = false, doR = false;
-        {
-            int32_t dom = (int32_t)_isrSeg.dominant;
-            _isrErrL -= (_isrSeg.deltaL < 0 ? -_isrSeg.deltaL : _isrSeg.deltaL);
-            if (_isrErrL < 0) { _isrErrL += dom; doL = true; }
-            _isrErrR -= (_isrSeg.deltaR < 0 ? -_isrSeg.deltaR : _isrSeg.deltaR);
-            if (_isrErrR < 0) { _isrErrR += dom; doR = true; }
-        }
-
-        if (doL) {
-            self->_drv->stepLeft(_isrSeg.deltaL > 0);
-            self->_curStepsL += (_isrSeg.deltaL > 0) ? 1 : -1;
-        }
-        if (doR) {
-            self->_drv->stepRight(_isrSeg.deltaR > 0);
-            self->_curStepsR += (_isrSeg.deltaR > 0) ? 1 : -1;
-        }
-
-        _isrDone++;
-    }
+    // ── Hardware timer ISR — definition in MotionPlanner.cpp ──
+    static void IRAM_ATTR timerISR();
 };
 
 // Static member declarations — defined in MotionPlanner.cpp

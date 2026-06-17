@@ -47,21 +47,11 @@ public:
     void disable() { digitalWrite(PIN_EN, HIGH); _enabled = false; }
     bool isEnabled() const { return _enabled; }
 
-    // ── Single-step pulse (called from ISR or planner) ─────────
-    // IRAM_ATTR ensures code lives in IRAM for ISR safety
-    IRAM_ATTR void stepLeft(bool dir) {
-        digitalWrite(PIN_X_DIR, dir ? HIGH : LOW);
-        digitalWrite(PIN_X_STEP, HIGH);
-        delayMicroseconds(2);
-        digitalWrite(PIN_X_STEP, LOW);
-    }
-
-    IRAM_ATTR void stepRight(bool dir) {
-        digitalWrite(PIN_Y_DIR, dir ? HIGH : LOW);
-        digitalWrite(PIN_Y_STEP, HIGH);
-        delayMicroseconds(2);
-        digitalWrite(PIN_Y_STEP, LOW);
-    }
+    // ── Single-step pulse (called from ISR) ───────────────────
+    // Definitions in StepperDriver.cpp — IRAM_ATTR bodies must
+    // live in exactly one translation unit to avoid literal pool errors.
+    IRAM_ATTR void stepLeft(bool dir);
+    IRAM_ATTR void stepRight(bool dir);
 
     // ── Reconfigure current (called after config change) ───────
     void updateCurrent() {
