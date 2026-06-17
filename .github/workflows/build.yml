@@ -1,0 +1,294 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [ main ]
+    tags:     [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+# Allow Pages deployment
+permissions:
+  contents: write       # create releases
+  pages:    write       # deploy to Pages
+  id-token: write       # OIDC token for Pages
+
+jobs:
+  build:
+    name: Build firmware + filesystem
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install platformio esptool
+
+      - name: Build firmware
+        run: pio run --environment fysetc_e4
+
+      - name: Build filesystem image
+        run: pio run --environment fysetc_e4 --target buildfs
+
+      # ── Collect blobs ──────────────────────────────────────────
+      - name: Collect flash blobs
+        run: |
+          BUILD=.pio/build/fysetc_e4
+          PIO=~/.platformio
+
+          BOOT_APP0=$(find "$PIO/packages" \
+            -name boot_app0.bin \
+            -path "*/framework-arduinoespressif32/*" \
+            | head -1)
+
+          [ -z "$BOOT_APP0" ] && { echo "ERROR: boot_app0.bin not found"; exit 1; }
+          echo "boot_app0: $BOOT_APP0"
+
+          # OTA artifacts (uploaded to /update)
+          mkdir -p dist/ota
+          cp "$BUILD/firmware.bin"  dist/ota/polargraph-firmware.bin
+          cp "$BUILD/littlefs.bin"  dist/ota/polargraph-filesystem.bin
+
+          # First-flash blobs (also served from Pages for web flasher)
+          mkdir -p dist/first-flash/blobs dist/pages/blobs
+          for f in bootloader partitions firmware; do
+            cp "$BUILD/${f}.bin" "dist/first-flash/blobs/${f}.bin"
+            cp "$BUILD/${f}.bin" "dist/pages/blobs/${f}.bin"
+          done
+          cp "$BUILD/littlefs.bin"  dist/first-flash/blobs/littlefs.bin
+          cp "$BUILD/littlefs.bin"  dist/pages/blobs/littlefs.bin
+          cp "$BOOT_APP0"           dist/first-flash/blobs/boot_app0.bin
+          cp "$BOOT_APP0"           dist/pages/blobs/boot_app0.bin
+
+          echo "--- Blobs ---"
+          ls -lh dist/pages/blobs/
+
+      # ── Generate flash scripts ──────────────────────────────────
+      - name: Generate flash scripts
+        run: |
+          cat > dist/first-flash/flash.sh << 'SH'
+          #!/usr/bin/env bash
+          set -e
+          cd "$(dirname "$0")"
+          echo "== Polargraph First Flash =="
+          command -v python3 >/dev/null || { echo "ERROR: python3 not found"; exit 1; }
+          python3 -m esptool version >/dev/null 2>&1 || python3 -m pip install esptool -q
+          PORT="${1:-}"
+          if [ -z "$PORT" ]; then
+            for p in /dev/ttyUSB0 /dev/ttyUSB1 /dev/ttyACM0 /dev/cu.usbserial-* /dev/cu.SLAB_USBtoUART; do
+              [ -e "$p" ] && { PORT="$p"; break; }
+            done
+          fi
+          [ -z "$PORT" ] && { echo "ERROR: no port found. Usage: ./flash.sh /dev/ttyUSB0"; exit 1; }
+          echo "Port: $PORT"
+          python3 -m esptool --chip esp32 --port "$PORT" --baud 460800 \
+            --before default_reset --after hard_reset write_flash \
+            --flash_mode dio --flash_freq 40m --flash_size 4MB \
+            0x1000   blobs/bootloader.bin \
+            0x8000   blobs/partitions.bin \
+            0xe000   blobs/boot_app0.bin  \
+            0x10000  blobs/firmware.bin   \
+            0x3D0000 blobs/littlefs.bin
+          echo ""
+          echo "Done! Board will create WiFi AP: Polargraph-Setup (password: polargraph)"
+          echo "Connect to it and open http://192.168.4.1/wifi to configure your network."
+          SH
+          chmod +x dist/first-flash/flash.sh
+
+          cat > dist/first-flash/flash.bat << 'BAT'
+          @echo off
+          cd /d "%~dp0"
+          echo == Polargraph First Flash ==
+          python --version >nul 2>&1 || (echo ERROR: Python not found. Get it from python.org & pause & exit /b 1)
+          python -m esptool version >nul 2>&1 || python -m pip install esptool -q
+          set PORT=%1
+          if "%PORT%"=="" (
+            echo Available ports:
+            python -c "import serial.tools.list_ports; [print(' ',p.device,p.description) for p in serial.tools.list_ports.comports()]" 2>nul || python -m pip install pyserial -q
+            set /p PORT="Enter COM port (e.g. COM3): "
+          )
+          python -m esptool --chip esp32 --port %PORT% --baud 460800 ^
+            --before default_reset --after hard_reset write_flash ^
+            --flash_mode dio --flash_freq 40m --flash_size 4MB ^
+            0x1000   blobs\bootloader.bin ^
+            0x8000   blobs\partitions.bin ^
+            0xe000   blobs\boot_app0.bin  ^
+            0x10000  blobs\firmware.bin   ^
+            0x3D0000 blobs\littlefs.bin
+          echo.
+          echo Done! WiFi AP: Polargraph-Setup / password: polargraph
+          echo Open http://192.168.4.1/wifi to configure.
+          pause
+          BAT
+
+      # ── Update manifest with version & build date ──────────────
+      - name: Update manifest
+        run: |
+          VERSION="${{ github.ref_name }}"
+          [ "$VERSION" = "main" ] && VERSION="dev-${{ github.run_number }}"
+          BUILT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          # Inject version/built into manifest using Python (jq not always available)
+          python3 - << PYEOF
+          import json, sys
+          with open('docs/flash-manifest.json') as f:
+              m = json.load(f)
+          m['version'] = '${VERSION}'
+          m['built']   = '${BUILT}'
+          m['commit']  = '${{ github.sha }}'[:8]
+          with open('dist/pages/flash-manifest.json', 'w') as f:
+              json.dump(m, f, indent=2)
+          print("Manifest:", json.dumps(m, indent=2))
+          PYEOF
+
+      # ── Assemble GitHub Pages site ─────────────────────────────
+      # The Pages site IS the web flasher.
+      # Structure:
+      #   /              index.html (the flasher UI)
+      #   /flash-manifest.json
+      #   /blobs/*.bin   (served directly, fetched by the flasher JS)
+      - name: Assemble Pages site
+        run: |
+          # Copy the flasher HTML
+          cp docs/index.html dist/pages/index.html
+
+          # Create a simple redirect so /flash also works
+          echo '<meta http-equiv="refresh" content="0;url=/">' \
+            > dist/pages/flash.html
+
+          # Inject the correct GitHub Pages URL into the flasher
+          PAGES_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
+          sed -i "s|YOUR_USERNAME/polargraph|${{ github.repository }}|g" \
+            dist/pages/index.html
+
+          echo "--- Pages site ---"
+          find dist/pages -type f | sort
+          echo ""
+          du -sh dist/pages/
+
+      # ── Zip first-flash package ────────────────────────────────
+      - name: Zip first-flash package
+        run: |
+          cd dist && zip -r polargraph-first-flash.zip first-flash/
+          ls -lh polargraph-first-flash.zip
+
+      # ── Build info ─────────────────────────────────────────────
+      - name: Build info
+        run: |
+          cat > dist/build-info.txt << EOF
+          Polargraph Firmware
+          Version : ${{ github.ref_name }}
+          Commit  : ${{ github.sha }}
+          Built   : $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          Web flasher (first time, no install needed):
+            https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+
+          OTA update (after first flash):
+            http://<ip>/update → polargraph-firmware.bin
+            http://<ip>/update → polargraph-filesystem.bin
+
+          First flash without web browser (Python only):
+            Unzip polargraph-first-flash.zip
+            Windows:      flash.bat
+            Mac / Linux:  ./flash.sh
+          EOF
+
+      # ── Upload OTA artifacts ───────────────────────────────────
+      - name: Upload OTA artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: polargraph-ota-${{ github.run_number }}
+          path: |
+            dist/ota/
+            dist/build-info.txt
+          retention-days: 90
+
+      # ── Upload first-flash package ─────────────────────────────
+      - name: Upload first-flash package
+        uses: actions/upload-artifact@v4
+        with:
+          name: polargraph-first-flash-${{ github.run_number }}
+          path: dist/polargraph-first-flash.zip
+          retention-days: 90
+
+      # ── Deploy to GitHub Pages (main branch only) ──────────────
+      # Pages is only updated on pushes to main, not PRs.
+      # This means the live flasher always points to the latest
+      # stable build, not experimental branches.
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/pages/
+
+      # ── Create Release on version tags ────────────────────────
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Polargraph ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+          body: |
+            ## Polargraph ${{ github.ref_name }}
+
+            ### ✨ Flash via browser — nothing to install
+
+            **https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/**
+
+            Works in Chrome and Edge. Plug in USB, click Flash, done.
+
+            ---
+
+            ### 🔄 Already installed? OTA update
+
+            1. Open `http://<ip>/update`
+            2. Upload **`polargraph-firmware.bin`** → Update → reboot
+            3. Upload **`polargraph-filesystem.bin`** → Update → reboot
+
+            ---
+
+            ### 💻 No browser flash support? Python script
+
+            Download `polargraph-first-flash.zip`, extract, run:
+            - **Windows:** `flash.bat`
+            - **Mac/Linux:** `./flash.sh`
+
+            Only needs Python 3. Installs esptool automatically.
+
+          files: |
+            dist/polargraph-first-flash.zip
+            dist/ota/polargraph-firmware.bin
+            dist/ota/polargraph-filesystem.bin
+            dist/build-info.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Separate Pages deployment job ─────────────────────────────
+  # GitHub Pages requires its own job with the pages environment.
+  deploy-pages:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

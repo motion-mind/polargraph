@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Polargraph — Firmware Flasher</title>
+<style>
+:root {
+  --bg:     #0c0e14;
+  --panel:  #13151f;
+  --card:   #1a1d2b;
+  --border: #252838;
+  --accent: #7c6af7;
+  --accent2:#a78bfa;
+  --green:  #4ade80;
+  --red:    #f87171;
+  --amber:  #fbbf24;
+  --text:   #e2e8f0;
+  --muted:  #64748b;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem 1rem;
+}
+.wrap { width: 100%; max-width: 560px; }
+header { text-align: center; margin-bottom: 2.5rem; }
+header h1 { font-size: 2rem; color: var(--accent2); margin-bottom: .4rem; }
+header p  { color: var(--muted); font-size: .95rem; }
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+}
+.card h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .1em;
+           color: var(--muted); margin-bottom: 1rem; }
+
+/* Step indicators */
+.steps { display: flex; gap: .5rem; margin-bottom: 1.5rem; }
+.step  {
+  flex: 1; text-align: center; padding: .5rem .3rem;
+  border-radius: 8px; border: 1px solid var(--border);
+  font-size: .75rem; color: var(--muted); background: var(--panel);
+  transition: all .3s;
+}
+.step.active  { border-color: var(--accent); color: var(--accent2); background: rgba(124,106,247,.08); }
+.step.done    { border-color: #14532d; color: var(--green); background: rgba(74,222,128,.05); }
+.step.error   { border-color: #450a0a; color: var(--red); }
+.step-num     { display: block; font-size: 1.1rem; font-weight: 700; margin-bottom: .2rem; }
+
+/* Big flash button */
+#btn-flash {
+  display: block; width: 100%;
+  background: var(--accent); color: #fff;
+  border: none; border-radius: 10px;
+  padding: 1rem; font-size: 1.1rem; font-weight: 700;
+  cursor: pointer; transition: opacity .15s, transform .1s;
+  margin-top: 1rem;
+}
+#btn-flash:hover:not(:disabled) { opacity: .88; transform: translateY(-1px); }
+#btn-flash:active:not(:disabled) { transform: translateY(0); }
+#btn-flash:disabled { opacity: .35; cursor: not-allowed; }
+#btn-flash.success { background: #14532d; color: var(--green); }
+#btn-flash.danger  { background: #7f1d1d; color: var(--red); }
+
+/* Progress */
+.progress-wrap { margin: 1rem 0; }
+.progress-label { display: flex; justify-content: space-between;
+                  font-size: .78rem; color: var(--muted); margin-bottom: .4rem; }
+.progress-track { height: 8px; background: #1a1a2e; border-radius: 4px; overflow: hidden; }
+.progress-fill  { height: 100%; background: var(--accent); border-radius: 4px;
+                  transition: width .2s; width: 0%; }
+.progress-fill.done  { background: var(--green); }
+.progress-fill.error { background: var(--red); }
+
+/* Log */
+.log {
+  background: #080a0f;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .7rem .9rem;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: .76rem;
+  line-height: 1.6;
+  height: 200px;
+  overflow-y: auto;
+  margin-top: 1rem;
+  color: #86efac;
+}
+.log .err  { color: var(--red); }
+.log .warn { color: var(--amber); }
+.log .info { color: var(--muted); }
+.log .ok   { color: var(--green); }
+.log .head { color: var(--accent2); font-weight: 700; }
+
+/* Badges */
+.badge {
+  display: inline-block; padding: .2rem .6rem;
+  border-radius: 999px; font-size: .72rem; font-weight: 700;
+}
+.b-ok  { background:#14532d; color: var(--green); }
+.b-err { background:#450a0a; color: var(--red); }
+.b-warn{ background:#422006; color: var(--amber); }
+.b-neu { background: var(--panel); border:1px solid var(--border); color: var(--muted); }
+
+/* Browser compat warning */
+#compat-warn {
+  background: #422006;
+  border: 1px solid #854d0e;
+  border-radius: 10px;
+  padding: 1rem 1.2rem;
+  margin-bottom: 1.5rem;
+  display: none;
+}
+#compat-warn p { font-size: .88rem; line-height: 1.6; }
+#compat-warn strong { color: var(--amber); }
+
+/* Version info */
+.version-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: .5rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: .82rem;
+}
+.version-row:last-child { border: none; }
+.version-row .label { color: var(--muted); }
+.version-row .val   { color: var(--text); font-weight: 600; }
+
+/* After-flash instructions */
+#after-flash { display: none; }
+.steps-list { list-style: none; counter-reset: step; }
+.steps-list li {
+  counter-increment: step;
+  padding: .5rem 0 .5rem 2.5rem;
+  position: relative;
+  border-bottom: 1px solid var(--border);
+  font-size: .88rem;
+  line-height: 1.5;
+}
+.steps-list li:last-child { border: none; }
+.steps-list li::before {
+  content: counter(step);
+  position: absolute; left: 0; top: .45rem;
+  width: 1.6rem; height: 1.6rem;
+  background: var(--accent); color: #fff;
+  border-radius: 50%; text-align: center;
+  line-height: 1.6rem; font-size: .75rem; font-weight: 700;
+}
+a { color: var(--accent2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>⬡ Polargraph</h1>
+  <p>Firmware installer — runs entirely in your browser, nothing to install</p>
+</header>
+
+<!-- Browser compat warning (shown if Web Serial not available) -->
+<div id="compat-warn">
+  <p><strong>⚠ Web Serial not supported in this browser.</strong><br>
+  Please use <strong>Chrome</strong> or <strong>Edge</strong> (version 89+).<br>
+  Firefox and Safari do not support Web Serial API yet.</p>
+</div>
+
+<!-- Step indicator -->
+<div class="steps">
+  <div class="step active" id="step-connect">
+    <span class="step-num">①</span>Connect
+  </div>
+  <div class="step" id="step-flash">
+    <span class="step-num">②</span>Flash
+  </div>
+  <div class="step" id="step-done">
+    <span class="step-num">③</span>Setup
+  </div>
+</div>
+
+<!-- Firmware version card -->
+<div class="card" id="card-version">
+  <h2>Firmware</h2>
+  <div class="version-row">
+    <span class="label">Version</span>
+    <span class="val" id="fw-version">Loading...</span>
+  </div>
+  <div class="version-row">
+    <span class="label">Built</span>
+    <span class="val" id="fw-built">—</span>
+  </div>
+  <div class="version-row">
+    <span class="label">Size</span>
+    <span class="val" id="fw-size">—</span>
+  </div>
+  <div class="version-row">
+    <span class="label">Target</span>
+    <span class="val">Fysetc E4 (ESP32)</span>
+  </div>
+</div>
+
+<!-- Main flash card -->
+<div class="card">
+  <h2>Flash Firmware</h2>
+
+  <div style="font-size:.85rem;color:var(--muted);line-height:1.6;margin-bottom:1rem">
+    Connect the Fysetc E4 board via USB-C, then click the button below.
+    Chrome will ask you to select the serial port — choose the one labelled
+    <strong style="color:var(--text)">CP2102</strong> or <strong style="color:var(--text)">CH340</strong>.
+  </div>
+
+  <div class="progress-wrap" id="prog-wrap" style="display:none">
+    <div class="progress-label">
+      <span id="prog-label">Connecting...</span>
+      <span id="prog-pct">0%</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" id="prog-fill"></div>
+    </div>
+  </div>
+
+  <button id="btn-flash" onclick="startFlash()">
+    ⚡ Connect &amp; Flash
+  </button>
+
+  <div class="log" id="log"></div>
+</div>
+
+<!-- After-flash instructions (shown on success) -->
+<div class="card" id="after-flash">
+  <h2>✓ Flash complete — next steps</h2>
+  <ol class="steps-list">
+    <li>The board restarts and creates a WiFi network called
+        <strong>Polargraph-Setup</strong></li>
+    <li>Connect your phone or laptop to that network
+        (password: <strong>polargraph</strong>)</li>
+    <li>Open <a href="http://192.168.4.1/wifi" target="_blank">
+        http://192.168.4.1/wifi</a> in your browser</li>
+    <li>Enter your home WiFi name and password, click Save</li>
+    <li>The board reboots and joins your network</li>
+    <li>Find its IP address on your router's device list</li>
+    <li>Open <strong>http://&lt;ip&gt;/</strong> — you're ready to draw!</li>
+  </ol>
+  <div style="margin-top:1rem;font-size:.8rem;color:var(--muted)">
+    All future firmware updates use <strong>http://&lt;ip&gt;/update</strong> —
+    no USB needed again.
+  </div>
+</div>
+
+<!-- Troubleshooting -->
+<details style="margin-top:1rem">
+  <summary style="cursor:pointer;color:var(--muted);font-size:.82rem;
+                  padding:.5rem;border-radius:6px;border:1px solid var(--border)">
+    Troubleshooting
+  </summary>
+  <div class="card" style="border-radius:0 0 14px 14px;border-top:none;margin-top:0">
+    <div class="version-row">
+      <span class="label">"Failed to connect"</span>
+      <span class="val" style="font-size:.78rem;color:var(--muted)">
+        Hold BOOT button while clicking Flash
+      </span>
+    </div>
+    <div class="version-row">
+      <span class="label">Port not listed</span>
+      <span class="val" style="font-size:.78rem;color:var(--muted)">
+        Install <a href="https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers">
+        CP210x</a> or <a href="https://www.wch-ic.com/downloads/CH341SER_EXE.html">CH340</a> driver
+      </span>
+    </div>
+    <div class="version-row">
+      <span class="label">Port in use</span>
+      <span class="val" style="font-size:.78rem;color:var(--muted)">
+        Close serial monitors / Arduino IDE
+      </span>
+    </div>
+    <div class="version-row">
+      <span class="label">Linux: permission denied</span>
+      <span class="val" style="font-size:.78rem;color:var(--muted)">
+        <code>sudo usermod -aG dialout $USER</code> then log out
+      </span>
+    </div>
+  </div>
+</details>
+
+<div style="text-align:center;margin-top:2rem;font-size:.75rem;color:var(--muted)">
+  <a href="https://github.com/YOUR_USERNAME/polargraph">GitHub</a> ·
+  Flashing powered by
+  <a href="https://github.com/espressif/esptool-js">esptool-js</a>
+</div>
+
+</div><!-- wrap -->
+
+<!--
+  esptool-js from Espressif's CDN (same library used by ESP Web Tools,
+  Adafruit's web flasher, and the official ESP Launchpad).
+  Implements the ESP32 ROM bootloader protocol over Web Serial:
+    - SLIP framing
+    - SYNC / FLASH_BEGIN / FLASH_DATA / FLASH_END / FLASH_MD5
+    - DTR/RTS toggling for auto-reset into download mode
+-->
+<script src="https://unpkg.com/esptool-js@0.4.3/bundle.js"></script>
+
+<script>
+// ── Configuration ─────────────────────────────────────────────
+// GitHub Pages serves blobs/ relative to this page.
+// The manifest tells us the version and what to flash.
+const MANIFEST_URL = './flash-manifest.json';
+
+// ── State ─────────────────────────────────────────────────────
+let manifest = null;
+let flashing = false;
+
+// ── On load ───────────────────────────────────────────────────
+window.addEventListener('load', async () => {
+  // Check Web Serial support
+  if (!('serial' in navigator)) {
+    document.getElementById('compat-warn').style.display = 'block';
+    document.getElementById('btn-flash').disabled = true;
+    return;
+  }
+
+  // Load manifest and show firmware info
+  try {
+    const r = await fetch(MANIFEST_URL);
+    if (!r.ok) throw new Error(`Manifest fetch failed: ${r.status}`);
+    manifest = await r.json();
+
+    document.getElementById('fw-version').textContent = manifest.version || 'latest';
+    document.getElementById('fw-built').textContent   = manifest.built   || '—';
+
+    // Sum blob sizes
+    const build = manifest.builds.find(b => b.chipFamily === 'ESP32');
+    if (build) {
+      let totalBytes = 0;
+      await Promise.all(build.parts.map(async part => {
+        try {
+          const hr = await fetch(part.path, {method:'HEAD'});
+          const cl = hr.headers.get('content-length');
+          if (cl) totalBytes += parseInt(cl);
+        } catch {}
+      }));
+      if (totalBytes > 0) {
+        document.getElementById('fw-size').textContent =
+          (totalBytes / 1024).toFixed(1) + ' KB total';
+      }
+    }
+  } catch(e) {
+    log('warn', `Could not load manifest: ${e.message}`);
+    log('info', 'Flasher is ready — manifest will be fetched at flash time.');
+  }
+});
+
+// ── Main flash sequence ───────────────────────────────────────
+async function startFlash() {
+  if (flashing) return;
+  flashing = true;
+
+  const btn  = document.getElementById('btn-flash');
+  btn.disabled = true;
+  btn.textContent = '⏳ Working...';
+
+  document.getElementById('prog-wrap').style.display = 'block';
+  setStep(1);
+
+  try {
+    // ── Load manifest if not already loaded ───────────────────
+    if (!manifest) {
+      log('info', 'Fetching manifest...');
+      const r = await fetch(MANIFEST_URL);
+      manifest = await r.json();
+    }
+
+    const build = manifest.builds.find(b => b.chipFamily === 'ESP32');
+    if (!build) throw new Error('No ESP32 build found in manifest');
+
+    // ── Fetch all binary blobs ─────────────────────────────────
+    log('head', '▸ Downloading firmware blobs...');
+    setProgress(0, 'Downloading firmware...');
+
+    const parts = [];
+    for (let i = 0; i < build.parts.length; i++) {
+      const part = build.parts[i];
+      const name = part.path.split('/').pop();
+      log('info', `  Fetching ${name}...`);
+      const r = await fetch(part.path);
+      if (!r.ok) throw new Error(`Failed to fetch ${part.path}: ${r.status}`);
+      const data = await r.arrayBuffer();
+      parts.push({ data, offset: part.offset, name });
+      log('ok',   `  ✓ ${name} (${(data.byteLength/1024).toFixed(1)} KB)`);
+      setProgress(Math.round((i+1) / build.parts.length * 15), 'Downloading...');
+    }
+
+    const totalBytes = parts.reduce((s, p) => s + p.data.byteLength, 0);
+    log('ok', `Total: ${(totalBytes/1024).toFixed(1)} KB across ${parts.length} blobs`);
+
+    // ── Request serial port ────────────────────────────────────
+    log('head', '▸ Opening serial port...');
+    setProgress(15, 'Select the serial port in the browser dialog...');
+    log('info', 'Browser dialog opening — select the CP2102 or CH340 port');
+
+    const port = await navigator.serial.requestPort({
+      filters: [
+        { usbVendorId: 0x10c4 },   // Silicon Labs CP210x
+        { usbVendorId: 0x1a86 },   // WCH CH340
+        { usbVendorId: 0x0403 },   // FTDI
+        { usbVendorId: 0x239a },   // Adafruit
+      ]
+    });
+
+    // ── Initialise esptool-js ──────────────────────────────────
+    // ESPLoader handles the SLIP protocol, sync, and chip detection.
+    const transport = new ESPLoader.Transport(port, true);
+
+    const loaderOptions = {
+      transport,
+      baudrate:    460800,
+      romBaudrate: 115200,
+      enableTracing: false,
+      debugLogging:  false,
+      terminal: {
+        clean:        () => {},
+        writeLine:    (s) => logRaw(s),
+        write:        (s) => logRaw(s),
+      },
+    };
+
+    log('info', 'Connecting to ESP32 ROM bootloader...');
+    log('info', '(If this hangs, hold the BOOT button and click Flash again)');
+    setProgress(18, 'Connecting to ESP32...');
+
+    const loader = new ESPLoader.ESPLoader(loaderOptions);
+    const chip   = await loader.main();
+    log('ok', `✓ Connected: ${chip}`);
+    setStep(2);
+    setProgress(20, `Connected to ${chip}`);
+
+    // ── Flash each blob ────────────────────────────────────────
+    log('head', '▸ Flashing firmware...');
+
+    // Convert parts to esptool-js format
+    const flashFiles = parts.map(p => ({
+      data:    arrayBufferToBinaryString(p.data),
+      address: p.offset,
+    }));
+
+    let bytesWritten = 0;
+    const progressCb = (fileIndex, written, total) => {
+      // fileIndex is 0-based index into flashFiles
+      // Calculate overall progress across all files
+      const prevBytes = parts.slice(0, fileIndex).reduce((s,p) => s+p.data.byteLength, 0);
+      const overall   = prevBytes + written;
+      const pct       = 20 + Math.round((overall / totalBytes) * 70);
+      const name      = parts[fileIndex]?.name || '';
+      setProgress(pct,
+        `Flashing ${name} (${(written/1024).toFixed(0)}/${(total/1024).toFixed(0)} KB)`);
+    };
+
+    const flashOptions = {
+      fileArray:       flashFiles,
+      flashSize:       '4MB',
+      flashMode:       'dio',
+      flashFreq:       '40m',
+      eraseAll:        false,
+      compress:        true,
+      reportProgress:  progressCb,
+      calculateMD5Hash: (image) => CryptoJS.MD5(CryptoJS.enc.Latin1.parse(image)).toString(),
+    };
+
+    await loader.writeFlash(flashOptions);
+    log('ok', '✓ All blobs written and verified');
+
+    // ── Hard reset into run mode ───────────────────────────────
+    setProgress(95, 'Resetting board...');
+    await loader.hardReset();
+    log('ok', '✓ Board reset — booting Polargraph firmware');
+    await transport.disconnect();
+
+    // ── Done ──────────────────────────────────────────────────
+    setProgress(100, 'Flash complete!', 'done');
+    setStep(3);
+    btn.textContent  = '✓ Flashed successfully';
+    btn.className    = 'success';
+    btn.disabled     = true;
+    document.getElementById('after-flash').style.display = 'block';
+    document.getElementById('after-flash').scrollIntoView({ behavior:'smooth' });
+
+  } catch(e) {
+    log('err', `✗ Error: ${e.message}`);
+    console.error(e);
+    setProgress(0, 'Failed — see log below', 'error');
+    btn.textContent = '⚡ Try Again';
+    btn.className   = 'danger';
+    btn.disabled    = false;
+    setStepError();
+  }
+
+  flashing = false;
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function setProgress(pct, label, state) {
+  document.getElementById('prog-pct').textContent   = pct + '%';
+  document.getElementById('prog-label').textContent = label;
+  const fill = document.getElementById('prog-fill');
+  fill.style.width = pct + '%';
+  fill.className   = 'progress-fill' + (state ? ' '+state : '');
+}
+
+function setStep(n) {
+  // n: 1=connect, 2=flash, 3=done
+  const ids = ['step-connect','step-flash','step-done'];
+  ids.forEach((id,i) => {
+    const el = document.getElementById(id);
+    el.className = 'step' + (i+1 < n ? ' done' : i+1 === n ? ' active' : '');
+  });
+}
+
+function setStepError() {
+  // Mark the current active step as errored
+  document.querySelectorAll('.step.active').forEach(el => {
+    el.classList.remove('active'); el.classList.add('error');
+  });
+}
+
+const logEl = document.getElementById('log');
+function log(type, msg) {
+  const d = document.createElement('div');
+  d.className = type;
+  d.textContent = msg;
+  logEl.appendChild(d);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function logRaw(msg) {
+  if (!msg || !msg.trim()) return;
+  // Filter out the very verbose SLIP byte dumps from esptool-js
+  if (msg.includes('Sending packet') || msg.includes('raw:')) return;
+  log('info', msg.trim());
+}
+
+// esptool-js needs binary strings, not ArrayBuffers
+function arrayBufferToBinaryString(buf) {
+  const bytes = new Uint8Array(buf);
+  let str = '';
+  for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+  return str;
+}
+</script>
+
+<!-- CryptoJS for MD5 verification (required by esptool-js writeFlash) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"
+        integrity="sha512-a+SUDuwNzXDvz4XrIcXHuCf089/iJAoLouYLbe+L8oiS7EtIdMaOpSRe7WA2HSq4MlTfV6yFiPjhvMxpDDeA=="
+        crossorigin="anonymous"></script>
+</body>
+</html>

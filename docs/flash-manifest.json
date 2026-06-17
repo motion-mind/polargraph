@@ -1,0 +1,33 @@
+{
+  "name": "Polargraph",
+  "version": "latest",
+  "home_assistant_domain": null,
+  "new_install_skip_erase": false,
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "parts": [
+        {
+          "path": "blobs/bootloader.bin",
+          "offset": 4096
+        },
+        {
+          "path": "blobs/partitions.bin",
+          "offset": 32768
+        },
+        {
+          "path": "blobs/boot_app0.bin",
+          "offset": 57344
+        },
+        {
+          "path": "blobs/firmware.bin",
+          "offset": 65536
+        },
+        {
+          "path": "blobs/littlefs.bin",
+          "offset": 3997696
+        }
+      ]
+    }
+  ]
+}

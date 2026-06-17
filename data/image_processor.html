@@ -1,0 +1,1690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Polargraph Image Processor</title>
+<style>
+:root {
+  --bg:     #0c0e14;
+  --panel:  #13151f;
+  --card:   #1a1d2b;
+  --border: #252838;
+  --accent: #7c6af7;
+  --accent2:#a78bfa;
+  --green:  #4ade80;
+  --red:    #f87171;
+  --amber:  #fbbf24;
+  --text:   #e2e8f0;
+  --muted:  #64748b;
+  --radius: 10px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+header {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: .8rem 1.2rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+header h1 { font-size: 1.1rem; color: var(--accent2); font-weight: 700; }
+header .sub { color: var(--muted); font-size: .8rem; }
+.tabs {
+  display: flex;
+  gap: .25rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 0 1rem;
+}
+.tab {
+  padding: .6rem 1rem;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: .85rem;
+  transition: all .15s;
+}
+.tab.active { border-color: var(--accent); color: var(--text); }
+.tab:hover:not(.active) { color: var(--text); }
+.workspace {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+.sidebar {
+  width: 300px;
+  min-width: 260px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: .8rem;
+}
+.main-area {
+  flex: 1;
+  overflow: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: center;
+}
+.section-title {
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--muted);
+  margin-bottom: .4rem;
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: .9rem;
+}
+label { display: block; font-size: .78rem; color: var(--muted); margin-bottom: .2rem; }
+input[type=range] {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+input[type=number], select {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: .4rem .6rem;
+  font-size: .85rem;
+}
+.row { display: flex; gap: .5rem; align-items: center; margin-bottom: .5rem; }
+.row label { margin: 0; flex: 1; }
+.val-display { color: var(--accent2); font-size: .78rem; min-width: 2.5rem; text-align: right; }
+button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: .5rem .9rem;
+  cursor: pointer;
+  font-size: .83rem;
+  font-weight: 600;
+  transition: opacity .15s;
+}
+button:hover { opacity: .85; }
+button:disabled { opacity: .4; cursor: not-allowed; }
+button.secondary {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+button.danger { background: #7f1d1d; }
+button.success { background: #14532d; color: var(--green); }
+.btn-row { display: flex; gap: .5rem; flex-wrap: wrap; }
+.canvas-wrap {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #000;
+}
+canvas { display: block; }
+#drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 2.5rem 1rem;
+  text-align: center;
+  cursor: pointer;
+  color: var(--muted);
+  transition: border-color .2s, background .2s;
+}
+#drop-zone:hover, #drop-zone.drag-over {
+  border-color: var(--accent);
+  background: rgba(124,106,247,.06);
+  color: var(--text);
+}
+#drop-zone svg { display: block; margin: 0 auto .8rem; opacity: .4; }
+.progress-bar {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: .4rem 0;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width .1s;
+  width: 0%;
+}
+.stats {
+  font-family: monospace;
+  font-size: .78rem;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.stat-val { color: var(--accent2); }
+.preview-tabs {
+  display: flex;
+  gap: .3rem;
+  margin-bottom: .6rem;
+}
+.preview-tab {
+  padding: .3rem .7rem;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: .78rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.preview-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.gcode-area {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: .8rem;
+  font-family: monospace;
+  font-size: .75rem;
+  color: #86efac;
+  height: 260px;
+  overflow-y: auto;
+  white-space: pre;
+  width: 100%;
+}
+.badge { padding: .15rem .5rem; border-radius: 4px; font-size: .72rem; font-weight: 600; }
+.badge.ok  { background: #14532d; color: var(--green); }
+.badge.err { background: #450a0a; color: var(--red); }
+.tooltip { position: relative; }
+.tooltip:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e2030;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: .72rem;
+  padding: .3rem .5rem;
+  border-radius: 5px;
+  white-space: nowrap;
+  z-index: 10;
+}
+#page-image { display: flex; }
+#page-gcode { display: none; }
+#page-send   { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>⬡ Polargraph Image Processor</h1>
+    <div class="sub">Upload → Process → Generate G-code → Send</div>
+  </div>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="showPage('image',this)">① Image</div>
+  <div class="tab" onclick="showPage('gcode',this)">② G-code</div>
+  <div class="tab" onclick="showPage('send',this)">③ Send</div>
+</div>
+
+<!-- ═══════════════════════ PAGE 1: IMAGE ═════════════════════ -->
+<div id="page-image" class="workspace">
+
+  <!-- sidebar -->
+  <div class="sidebar">
+
+    <div class="card">
+      <div class="section-title">Machine Canvas</div>
+      <div class="row"><label>Width (mm)</label>
+        <input type="number" id="cfg-w" value="700" style="width:80px">
+      </div>
+      <div class="row"><label>Height (mm)</label>
+        <input type="number" id="cfg-h" value="900" style="width:80px">
+      </div>
+      <div class="row"><label>Margin (mm)</label>
+        <input type="number" id="cfg-margin" value="20" style="width:80px">
+      </div>
+      <div class="row"><label>Steps/mm</label>
+        <input type="number" id="cfg-spm" value="80" step="0.1" style="width:80px">
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Image Adjustments</div>
+      <div class="row">
+        <label>Brightness</label>
+        <input type="range" id="adj-brightness" min="-100" max="100" value="0"
+               oninput="updateAdj()">
+        <span class="val-display" id="v-brightness">0</span>
+      </div>
+      <div class="row">
+        <label>Contrast</label>
+        <input type="range" id="adj-contrast" min="-100" max="100" value="0"
+               oninput="updateAdj()">
+        <span class="val-display" id="v-contrast">0</span>
+      </div>
+      <div class="row">
+        <label>Gamma</label>
+        <input type="range" id="adj-gamma" min="50" max="200" value="100"
+               oninput="updateAdj()">
+        <span class="val-display" id="v-gamma">1.0</span>
+      </div>
+      <div class="row">
+        <label>Sharpen</label>
+        <input type="range" id="adj-sharpen" min="0" max="10" value="0"
+               oninput="updateAdj()">
+        <span class="val-display" id="v-sharpen">0</span>
+      </div>
+      <div class="row">
+        <label>Invert</label>
+        <input type="checkbox" id="adj-invert" onchange="updateAdj()">
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Render Mode</div>
+      <label style="margin-bottom:.4rem">Algorithm</label>
+      <select id="alg-mode" onchange="onAlgChange()">
+        <option value="floyd">Floyd–Steinberg Dither</option>
+        <option value="ordered">Ordered (Bayer) Dither</option>
+        <option value="threshold">Hard Threshold</option>
+        <option value="hatch">Scanline Hatching</option>
+        <option value="contour">Contour / Isoline</option>
+        <option value="voronoi">Weighted Stipple</option>
+      </select>
+
+      <!-- Floyd-Steinberg options -->
+      <div id="opt-floyd" class="alg-opts" style="margin-top:.6rem">
+        <div class="row">
+          <label>Threshold</label>
+          <input type="range" id="fs-threshold" min="50" max="200" value="128"
+                 oninput="updatePreview()">
+          <span class="val-display" id="v-fs-threshold">128</span>
+        </div>
+      </div>
+
+      <!-- Ordered dither -->
+      <div id="opt-ordered" class="alg-opts" style="display:none;margin-top:.6rem">
+        <div class="row">
+          <label>Matrix size</label>
+          <select id="ord-size" onchange="updatePreview()">
+            <option value="2">2×2</option>
+            <option value="4" selected>4×4</option>
+            <option value="8">8×8</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Threshold -->
+      <div id="opt-threshold" class="alg-opts" style="display:none;margin-top:.6rem">
+        <div class="row">
+          <label>Level</label>
+          <input type="range" id="thr-level" min="0" max="255" value="128"
+                 oninput="updatePreview()">
+          <span class="val-display" id="v-thr-level">128</span>
+        </div>
+      </div>
+
+      <!-- Hatching -->
+      <div id="opt-hatch" class="alg-opts" style="display:none;margin-top:.6rem">
+        <div class="row">
+          <label>Line spacing (mm)</label>
+          <input type="range" id="hatch-spacing" min="1" max="20" value="4" step="0.5"
+                 oninput="updatePreview()">
+          <span class="val-display" id="v-hatch-spacing">4</span>
+        </div>
+        <div class="row">
+          <label>Angle (°)</label>
+          <input type="range" id="hatch-angle" min="0" max="180" value="45"
+                 oninput="updatePreview()">
+          <span class="val-display" id="v-hatch-angle">45</span>
+        </div>
+        <div class="row">
+          <label>Tone levels</label>
+          <input type="range" id="hatch-levels" min="2" max="8" value="4"
+                 oninput="updatePreview()">
+          <span class="val-display" id="v-hatch-levels">4</span>
+        </div>
+        <div class="row">
+          <label>Cross-hatch</label>
+          <input type="checkbox" id="hatch-cross" onchange="updatePreview()">
+        </div>
+      </div>
+
+      <!-- Contour -->
+      <div id="opt-contour" class="alg-opts" style="display:none;margin-top:.6rem">
+        <div class="row">
+          <label>Iso-levels</label>
+          <input type="range" id="ctr-levels" min="3" max="20" value="8"
+                 oninput="updatePreview()">
+          <span class="val-display" id="v-ctr-levels">8</span>
+        </div>
+        <div class="row">
+          <label>Smoothing</label>
+          <input type="range" id="ctr-smooth" min="1" max="10" value="3"
+                 oninput="updatePreview()">
+          <span class="val-display" id="v-ctr-smooth">3</span>
+        </div>
+      </div>
+
+      <!-- Stipple -->
+      <div id="opt-voronoi" class="alg-opts" style="display:none;margin-top:.6rem">
+        <div class="row">
+          <label>Dot count</label>
+          <input type="range" id="stip-count" min="200" max="4000" value="1200" step="100"
+                 oninput="updatePreview()">
+          <span class="val-display" id="v-stip-count">1200</span>
+        </div>
+        <div class="row">
+          <label>Dot size (mm)</label>
+          <input type="range" id="stip-size" min="0.5" max="5" value="1.5" step="0.5"
+                 oninput="updatePreview()">
+          <span class="val-display" id="v-stip-size">1.5</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">G-code Options</div>
+      <div class="row">
+        <label>Feed (mm/min)</label>
+        <input type="number" id="gc-feed" value="3000" style="width:80px">
+      </div>
+      <div class="row">
+        <label>Pen-up feed</label>
+        <input type="number" id="gc-travelfeed" value="6000" style="width:80px">
+      </div>
+      <div class="row">
+        <label>Z precision (mm)</label>
+        <input type="number" id="gc-precision" value="0.5" step="0.1" style="width:80px">
+      </div>
+      <div class="row">
+        <label>Optimise lifts</label>
+        <input type="checkbox" id="gc-optimise" checked>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button onclick="processImage()" id="btn-process" disabled>▶ Process</button>
+      <button class="secondary" onclick="resetImage()">✕ Reset</button>
+    </div>
+
+    <div id="proc-progress" style="display:none">
+      <div class="progress-bar"><div class="progress-fill" id="prog-fill"></div></div>
+      <div id="proc-status" class="stats"></div>
+    </div>
+
+    <div id="image-stats" class="card stats" style="display:none"></div>
+
+  </div>
+
+  <!-- main preview area -->
+  <div class="main-area">
+    <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <div style="font-size:1rem;margin-bottom:.3rem">Drop image here</div>
+      <div style="font-size:.8rem">or click to browse — JPG, PNG, BMP, WEBP</div>
+    </div>
+    <input type="file" id="file-input" accept="image/*" style="display:none"
+           onchange="loadFile(this)">
+
+    <div id="canvases" style="display:none;width:100%">
+      <div class="preview-tabs">
+        <div class="preview-tab active" onclick="showPreview('original',this)">Original</div>
+        <div class="preview-tab" onclick="showPreview('processed',this)">Processed</div>
+        <div class="preview-tab" onclick="showPreview('toolpath',this)">Toolpath</div>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="cv-original"  style="max-width:100%"></canvas>
+        <canvas id="cv-processed" style="display:none;max-width:100%"></canvas>
+        <canvas id="cv-toolpath"  style="display:none;max-width:100%;background:#fff"></canvas>
+      </div>
+    </div>
+  </div>
+
+</div><!-- end page-image -->
+
+<!-- ═══════════════════════ PAGE 2: EXPORT ════════════════════ -->
+<div id="page-gcode" class="workspace" style="display:none">
+  <div class="sidebar">
+    <div class="card stats" id="gcode-stats">Process an image first.</div>
+
+    <div class="card" style="border-color:#7c6af7">
+      <div class="section-title" style="color:#a78bfa">▸ Binary (.plg) — Recommended</div>
+      <div style="font-size:.75rem;color:var(--muted);margin-bottom:.5rem;line-height:1.5">
+        Full two-pass velocity lookahead across the entire job.
+        Pre-computed cord-space segments — zero parsing on device.
+        Typically 10–20× faster to execute than G-code.
+      </div>
+      <div class="btn-row">
+        <button onclick="downloadBinary()" id="btn-dl-plg" disabled>⬇ Download .plg</button>
+      </div>
+      <div id="plg-stats" class="stats" style="margin-top:.5rem;font-size:.72rem"></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">▸ G-code (.gcode) — Compatibility</div>
+      <div style="font-size:.75rem;color:var(--muted);margin-bottom:.5rem;line-height:1.5">
+        For use with external senders (Pronterface, LaserGRBL, vpype).
+        Per-segment planning on-device.
+      </div>
+      <div class="btn-row">
+        <button onclick="downloadGcode()" id="btn-dl-gc" disabled>⬇ Download .gcode</button>
+        <button class="secondary" onclick="copyGcode()" id="btn-copy-gc" disabled>⎘ Copy</button>
+      </div>
+    </div>
+  </div>
+  <div class="main-area" style="padding:1rem">
+    <div class="gcode-area" id="gcode-display">; Process an image first — click ▶ Process on the Image tab.</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ PAGE 3: SEND ═════════════════════ -->
+<div id="page-send" class="workspace" style="display:none">
+  <div class="sidebar">
+    <div class="card">
+      <div class="section-title">Machine IP</div>
+      <label>Polargraph address</label>
+      <input type="text" id="machine-ip" value="" placeholder="192.168.1.x">
+      <div class="btn-row" style="margin-top:.6rem">
+        <button onclick="testConnection()" class="secondary">Ping</button>
+        <span id="conn-status" class="badge" style="margin-left:.3rem">—</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Upload &amp; Run</div>
+      <div id="send-info" style="font-size:.78rem;color:var(--muted);margin-bottom:.5rem;line-height:1.5">
+        Uploads the <strong style="color:#a78bfa">.plg binary</strong> if available,
+        otherwise falls back to .gcode.<br>
+        Machine runs autonomously — use the dashboard to monitor.
+      </div>
+      <div class="progress-bar" id="ul-bar-wrap" style="display:none">
+        <div class="progress-fill" id="ul-fill"></div>
+      </div>
+      <div class="stats" id="send-stats" style="margin:.3rem 0"></div>
+      <div class="btn-row" style="margin-top:.5rem">
+        <button onclick="uploadAndStart()" id="btn-send" disabled>⬆ Upload &amp; Start</button>
+        <button class="secondary" onclick="uploadOnly()" id="btn-upload-only" disabled>⬆ Upload only</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Live Job Control</div>
+      <div id="live-job-state" style="margin-bottom:.5rem">
+        <span class="badge" id="live-badge">—</span>
+        <div class="progress-bar" style="margin-top:.4rem">
+          <div class="progress-fill" id="live-prog"></div>
+        </div>
+        <div id="live-pct" class="stats" style="font-size:.75rem;margin-top:.2rem"></div>
+      </div>
+      <div class="btn-row">
+        <button class="secondary" onclick="jobCtrl('pause')"  id="live-pause">⏸</button>
+        <button class="secondary" onclick="jobCtrl('resume')" id="live-resume">▷</button>
+        <button class="danger"    onclick="jobCtrl('stop')"   id="live-stop">■ Stop</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Open Dashboard</div>
+      <button class="secondary" id="btn-dashboard" disabled
+              onclick="window.open('http://'+document.getElementById('machine-ip').value,'_blank')">
+        Open http://&lt;ip&gt;/ ↗
+      </button>
+    </div>
+
+  </div>
+
+  <div class="main-area">
+    <div class="card" style="width:100%;max-width:600px">
+      <div class="section-title">Live Canvas</div>
+      <canvas id="cv-live" height="480"
+              style="width:100%;background:#0a0a0f;border-radius:8px"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════════
+let srcImage = null;          // HTMLImageElement
+let adjustedPixels = null;    // Uint8ClampedArray (greyscale, post-adjust)
+let srcW = 0, srcH = 0;       // image pixel dimensions
+let gcodeLines = [];          // generated G-code array
+let plgBuffer  = null;        // ArrayBuffer: PlgHeader + PlgSeg[]
+let machineW = 700, machineH = 900;  // mm
+
+// ═══════════════════════════════════════════════════════════════
+// Binary planner — two-pass velocity planning, cord-space output
+// ═══════════════════════════════════════════════════════════════
+const PLG_MAGIC    = [0x50,0x4C,0x47,0x31]; // 'PLG1'
+const PLG_VERSION  = 2;
+const PLG_PEN_DOWN = 0x01;
+const PLG_PEN_UP   = 0x02;
+const PLG_LAST     = 0x04;
+const PLG_RAPID    = 0x08;
+const SEG_BYTES    = 20;
+const HDR_BYTES    = 32;
+const MIN_INTERVAL = 20;      // µs — 50 kHz hard limit
+const MAX_INTERVAL = 65535;   // µs
+
+// Clamp speed to uint16 interval (µs/step)
+function speedToInterval(mmPerSec, stepsPerMm) {
+  if (mmPerSec < 0.1) mmPerSec = 0.1;
+  const us = 1e6 / (mmPerSec * stepsPerMm);
+  return Math.max(MIN_INTERVAL, Math.min(MAX_INTERVAL, Math.round(us)));
+}
+function intervalToSpeed(us, stepsPerMm) {
+  return 1e6 / (us * stepsPerMm);
+}
+
+/**
+ * Convert an array of {x,y,penDown} Cartesian waypoints into a .plg
+ * ArrayBuffer with globally optimised velocity profiles.
+ *
+ * Two-pass algorithm:
+ *   Pass 1 (forward): cap entry speed based on acceleration from previous exit.
+ *   Pass 2 (reverse): cap exit speed based on deceleration to next entry.
+ *   Final:  build trapezoidal profile for each segment.
+ */
+function buildPlgBuffer(waypoints, cfg) {
+  const { stepsPerMm, maxFeed, acceleration, junctionSpeed, machineWidth } = cfg;
+
+  if (waypoints.length < 2) return null;
+
+  // ── Step 1: compute cord deltas ──────────────────────────────
+  function cartToCord(x, y) {
+    const lL = Math.sqrt(x*x + y*y);
+    const dx = machineWidth - x;
+    const lR = Math.sqrt(dx*dx + y*y);
+    return {
+      stepsL: Math.round(lL * stepsPerMm),
+      stepsR: Math.round(lR * stepsPerMm)
+    };
+  }
+
+  // Pre-compute cord positions for every waypoint
+  const cordPos = waypoints.map(w => cartToCord(w.x, w.y));
+
+  // Build raw segment list
+  const raw = [];  // {deltaL, deltaR, dominant, lenMm, flags}
+  let prevCord = cordPos[0];
+
+  for (let i = 1; i < waypoints.length; i++) {
+    const cur  = cordPos[i];
+    const prev = waypoints[i-1];
+    const w    = waypoints[i];
+
+    const dL  = cur.stepsL - prevCord.stepsL;
+    const dR  = cur.stepsR - prevCord.stepsR;
+    const dom = Math.max(Math.abs(dL), Math.abs(dR));
+
+    let flags = 0;
+    if (w.penDown && !prev.penDown) flags |= PLG_PEN_DOWN;
+    if (!w.penDown && prev.penDown) flags |= PLG_PEN_UP;
+    if (!w.penDown) flags |= PLG_RAPID;
+
+    const lenMm = Math.sqrt((w.x-prev.x)**2 + (w.y-prev.y)**2);
+
+    if (dom > 0) {
+      raw.push({ deltaL:dL, deltaR:dR, dominant:dom, lenMm, flags });
+    } else if (flags) {
+      // Zero-distance pen event — emit with dom=0 so firmware handles servo only
+      raw.push({ deltaL:0, deltaR:0, dominant:0, lenMm:0, flags });
+    }
+
+    prevCord = cur;
+  }
+  if (raw.length === 0) return null;
+  raw[raw.length-1].flags |= PLG_LAST;
+
+  // ── Step 2: two-pass velocity planning ───────────────────────
+  const n = raw.length;
+  const jv = junctionSpeed;
+
+  // Entry and exit speeds (mm/s) for each segment
+  const entryV = new Float32Array(n).fill(jv);
+  const exitV  = new Float32Array(n).fill(jv);
+
+  // Forward pass: cap entry speed given acceleration from previous exit
+  entryV[0] = jv;
+  for (let i = 1; i < n; i++) {
+    const seg = raw[i];
+    const maxEntry = Math.sqrt(exitV[i-1]**2 + 2 * acceleration * seg.lenMm);
+    entryV[i] = Math.min(maxFeed, maxEntry, jv);
+    // Also cap by what we can reach: v² = v0² + 2ad
+    const reachable = Math.sqrt(entryV[i-1]**2 + 2 * acceleration * raw[i-1].lenMm);
+    if (entryV[i] > reachable) entryV[i] = reachable;
+  }
+
+  // Reverse pass: cap exit speed given deceleration to next entry
+  exitV[n-1] = jv;
+  for (let i = n-2; i >= 0; i--) {
+    const seg = raw[i];
+    const maxExit = Math.sqrt(entryV[i+1]**2 + 2 * acceleration * seg.lenMm);
+    exitV[i] = Math.min(maxFeed, maxExit, jv);
+    // Clamp: can't exit faster than we can decelerate to next entry
+    const reachable = Math.sqrt(entryV[i+1]**2 + 2 * acceleration * raw[i].lenMm);
+    if (exitV[i] > reachable) exitV[i] = reachable;
+  }
+
+  // ── Step 3: build trapezoidal profiles ───────────────────────
+  const planned = raw.map((seg, i) => {
+    const vEntry = Math.max(0.5, entryV[i]);
+    const vExit  = Math.max(0.5, exitV[i]);
+    const vCruise = Math.min(maxFeed,
+      Math.sqrt(acceleration * seg.lenMm +
+        0.5 * (vEntry**2 + vExit**2)));
+
+    const dAccel = (vCruise**2 - vEntry**2) / (2 * acceleration);
+    const dDecel = (vCruise**2 - vExit **2) / (2 * acceleration);
+    const fAccel = seg.lenMm > 0 ? Math.min(1, dAccel / seg.lenMm) : 0;
+    const fDecel = seg.lenMm > 0 ? Math.min(1 - fAccel, dDecel / seg.lenMm) : 0;
+
+    const accelSteps = Math.round(fAccel * seg.dominant);
+    const decelSteps = Math.round(fDecel * seg.dominant);
+
+    return {
+      deltaL:         seg.deltaL,
+      deltaR:         seg.deltaR,
+      dominant:       seg.dominant,
+      entryInterval:  speedToInterval(vEntry,  stepsPerMm),
+      cruiseInterval: speedToInterval(vCruise, stepsPerMm),
+      exitInterval:   speedToInterval(vExit,   stepsPerMm),
+      accelSteps:     Math.min(accelSteps, 65535),
+      decelSteps:     Math.min(decelSteps, 65535),
+      flags:          seg.flags
+    };
+  });
+
+  // ── Step 4: estimate duration ─────────────────────────────────
+  let estMs = 0;
+  for (const s of planned) {
+    if (s.dominant === 0) continue;
+    const cruise = s.dominant - s.accelSteps - s.decelSteps;
+    estMs += s.accelSteps  * (s.entryInterval  + s.cruiseInterval) / 2 / 1000;
+    estMs += cruise        * s.cruiseInterval / 1000;
+    estMs += s.decelSteps  * (s.cruiseInterval + s.exitInterval)   / 2 / 1000;
+  }
+
+  // ── Step 5: pack into ArrayBuffer ────────────────────────────
+  const totalBytes = HDR_BYTES + planned.length * SEG_BYTES;
+  const buf = new ArrayBuffer(totalBytes);
+  const view = new DataView(buf);
+  let off = 0;
+
+  // Header
+  PLG_MAGIC.forEach(b => { view.setUint8(off++, b); });
+  view.setUint8(off++, PLG_VERSION);
+  view.setUint8(off++, 0); view.setUint8(off++, 0); view.setUint8(off++, 0); // pad
+  view.setUint32(off, planned.length, true); off += 4;
+  view.setFloat32(off, cfg.machineWidth, true); off += 4;
+  view.setFloat32(off, cfg.machineHeight, true); off += 4;
+  view.setFloat32(off, stepsPerMm, true); off += 4;
+  view.setUint32(off, Math.round(estMs), true); off += 4;
+  off += 4; // reserved pad
+
+  // Segments
+  for (const s of planned) {
+    view.setInt32( off,    s.deltaL,         true); off += 4;
+    view.setInt32( off,    s.deltaR,         true); off += 4;
+    view.setUint16(off,    s.entryInterval,  true); off += 2;
+    view.setUint16(off,    s.cruiseInterval, true); off += 2;
+    view.setUint16(off,    s.exitInterval,   true); off += 2;
+    view.setUint16(off,    s.accelSteps,     true); off += 2;
+    view.setUint16(off,    s.decelSteps,     true); off += 2;
+    view.setUint8( off++,  s.flags);
+    view.setUint8( off++,  0);  // pad
+  }
+
+  return { buffer: buf, segCount: planned.length, estMs: Math.round(estMs) };
+}
+
+// ── Tab navigation ─────────────────────────────────────────────
+function showPage(name, el) {
+  document.querySelectorAll('[id^=page-]').forEach(p => p.style.display = 'none');
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('page-' + name).style.display = 'flex';
+  el.classList.add('active');
+}
+
+function showPreview(name, el) {
+  ['original','processed','toolpath'].forEach(n => {
+    document.getElementById('cv-' + n).style.display = n === name ? 'block' : 'none';
+  });
+  document.querySelectorAll('.preview-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+}
+
+function onAlgChange() {
+  document.querySelectorAll('.alg-opts').forEach(d => d.style.display = 'none');
+  const alg = document.getElementById('alg-mode').value;
+  const map = { floyd:'opt-floyd', ordered:'opt-ordered', threshold:'opt-threshold',
+                hatch:'opt-hatch', contour:'opt-contour', voronoi:'opt-voronoi' };
+  if (map[alg]) document.getElementById(map[alg]).style.display = 'block';
+  if (adjustedPixels) updatePreview();
+}
+
+// ── Range input live display ──────────────────────────────────
+function updateAdj() {
+  const ids = {
+    'adj-brightness':'v-brightness','adj-contrast':'v-contrast',
+    'adj-gamma':'v-gamma','adj-sharpen':'v-sharpen'
+  };
+  for (const [id, vid] of Object.entries(ids)) {
+    const v = parseFloat(document.getElementById(id).value);
+    const el = document.getElementById(vid);
+    if (id === 'adj-gamma') el.textContent = (v/100).toFixed(2);
+    else el.textContent = v;
+  }
+  if (srcImage) applyAdjustments();
+}
+
+function updatePreview() {
+  // update all range value labels
+  const pairs = [
+    ['fs-threshold','v-fs-threshold',1],['thr-level','v-thr-level',1],
+    ['hatch-spacing','v-hatch-spacing',1],['hatch-angle','v-hatch-angle',1],
+    ['hatch-levels','v-hatch-levels',1],['ctr-levels','v-ctr-levels',1],
+    ['ctr-smooth','v-ctr-smooth',1],['stip-count','v-stip-count',1],
+    ['stip-size','v-stip-size',1]
+  ];
+  pairs.forEach(([id,vid]) => {
+    const el = document.getElementById(id);
+    const vel = document.getElementById(vid);
+    if (el && vel) vel.textContent = el.value;
+  });
+  if (adjustedPixels) renderProcessed();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Image loading
+// ═══════════════════════════════════════════════════════════════
+const dropZone = document.getElementById('drop-zone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) loadImageFile(f);
+});
+
+function loadFile(input) {
+  if (input.files[0]) loadImageFile(input.files[0]);
+}
+
+function loadImageFile(file) {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    srcImage = img;
+    srcW = img.width; srcH = img.height;
+    document.getElementById('drop-zone').style.display = 'none';
+    document.getElementById('canvases').style.display = 'block';
+
+    // Draw original
+    const cv = document.getElementById('cv-original');
+    cv.width = srcW; cv.height = srcH;
+    cv.getContext('2d').drawImage(img, 0, 0);
+
+    document.getElementById('btn-process').disabled = false;
+    applyAdjustments();
+    URL.revokeObjectURL(url);
+  };
+  img.src = url;
+}
+
+function resetImage() {
+  srcImage = null; adjustedPixels = null; gcodeLines = [];
+  document.getElementById('drop-zone').style.display = 'block';
+  document.getElementById('canvases').style.display = 'none';
+  document.getElementById('btn-process').disabled = true;
+  document.getElementById('image-stats').style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Image adjustments → greyscale pixel array
+// ═══════════════════════════════════════════════════════════════
+function applyAdjustments() {
+  const brightness = parseInt(document.getElementById('adj-brightness').value);
+  const contrast   = parseInt(document.getElementById('adj-contrast').value);
+  const gamma      = parseFloat(document.getElementById('adj-gamma').value) / 100;
+  const sharpen    = parseInt(document.getElementById('adj-sharpen').value);
+  const invert     = document.getElementById('adj-invert').checked;
+
+  const cv = document.createElement('canvas');
+  cv.width = srcW; cv.height = srcH;
+  const ctx = cv.getContext('2d');
+  ctx.drawImage(srcImage, 0, 0);
+  const imgData = ctx.getImageData(0, 0, srcW, srcH);
+  const d = imgData.data;
+
+  // Convert to greyscale with adjustments
+  adjustedPixels = new Uint8ClampedArray(srcW * srcH);
+  const cf = (259 * (contrast + 255)) / (255 * (259 - contrast));
+
+  for (let i = 0; i < srcW * srcH; i++) {
+    const r = d[i*4], g = d[i*4+1], b = d[i*4+2];
+    let grey = 0.299*r + 0.587*g + 0.114*b;
+    grey = cf * (grey - 128) + 128 + brightness;
+    grey = Math.pow(grey / 255, gamma) * 255;
+    grey = Math.max(0, Math.min(255, grey));
+    if (invert) grey = 255 - grey;
+    adjustedPixels[i] = grey;
+  }
+
+  // Optional sharpen (unsharp mask approximation)
+  if (sharpen > 0) {
+    const s = adjustedPixels.slice();
+    const k = sharpen * 0.15;
+    for (let y = 1; y < srcH-1; y++) {
+      for (let x = 1; x < srcW-1; x++) {
+        const i = y*srcW + x;
+        const lap = -4*s[i] + s[i-1] + s[i+1] + s[i-srcW] + s[i+srcW];
+        adjustedPixels[i] = Math.max(0, Math.min(255, s[i] - k * lap));
+      }
+    }
+  }
+
+  renderProcessed();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Algorithm renderers
+// ═══════════════════════════════════════════════════════════════
+function renderProcessed() {
+  const alg = document.getElementById('alg-mode').value;
+  const cv  = document.getElementById('cv-processed');
+  cv.width = srcW; cv.height = srcH;
+  const ctx = cv.getContext('2d');
+  const imgData = ctx.createImageData(srcW, srcH);
+
+  let bilevel; // Uint8Array: 0=white, 255=black
+
+  if (alg === 'floyd') {
+    bilevel = floydSteinberg(adjustedPixels, srcW, srcH,
+                parseInt(document.getElementById('fs-threshold').value));
+  } else if (alg === 'ordered') {
+    bilevel = orderedDither(adjustedPixels, srcW, srcH,
+                parseInt(document.getElementById('ord-size').value));
+  } else if (alg === 'threshold') {
+    bilevel = hardThreshold(adjustedPixels, srcW, srcH,
+                parseInt(document.getElementById('thr-level').value));
+  } else if (alg === 'hatch') {
+    bilevel = hatchPreview(adjustedPixels, srcW, srcH, cv);
+    return; // hatchPreview draws directly
+  } else if (alg === 'contour') {
+    bilevel = contourPreview(adjustedPixels, srcW, srcH, cv);
+    return;
+  } else if (alg === 'voronoi') {
+    stipplePreview(adjustedPixels, srcW, srcH, cv);
+    return;
+  }
+
+  // Render bilevel
+  for (let i = 0; i < srcW * srcH; i++) {
+    const v = bilevel[i] > 0 ? 0 : 255;
+    imgData.data[i*4]   = v;
+    imgData.data[i*4+1] = v;
+    imgData.data[i*4+2] = v;
+    imgData.data[i*4+3] = 255;
+  }
+  ctx.putImageData(imgData, 0, 0);
+}
+
+// ── Floyd-Steinberg ───────────────────────────────────────────
+function floydSteinberg(src, w, h, threshold) {
+  const buf = new Float32Array(src);
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const old = buf[i];
+      const nw  = old < threshold ? 0 : 255;
+      out[i] = nw;
+      const err = old - nw;
+      if (x+1 < w)        buf[i+1]   += err * 7/16;
+      if (y+1 < h && x>0) buf[i+w-1] += err * 3/16;
+      if (y+1 < h)        buf[i+w]   += err * 5/16;
+      if (y+1 < h && x+1<w) buf[i+w+1] += err * 1/16;
+    }
+  }
+  return out;
+}
+
+// ── Ordered (Bayer) dither ────────────────────────────────────
+function orderedDither(src, w, h, matSize) {
+  const bayer2 = [[0,2],[3,1]];
+  const bayer4 = [[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]];
+  const bayer8 = (() => {
+    const m = Array.from({length:8}, ()=>new Array(8));
+    const b4 = bayer4;
+    for(let r=0;r<8;r++) for(let c=0;c<8;c++) {
+      if(r<4 && c<4) m[r][c] = 4*b4[r][c];
+      else if(r<4)   m[r][c] = 4*b4[r][c-4]+2;
+      else if(c<4)   m[r][c] = 4*b4[r-4][c]+3;
+      else           m[r][c] = 4*b4[r-4][c-4]+1;
+    } return m;
+  })();
+  const mat = matSize===2?bayer2:matSize===4?bayer4:bayer8;
+  const n = mat.length;
+  const norm = n * n;
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const threshold = (mat[y%n][x%n] + 0.5) / norm * 255;
+      out[y*w+x] = src[y*w+x] < threshold ? 255 : 0;
+    }
+  }
+  return out;
+}
+
+// ── Hard threshold ────────────────────────────────────────────
+function hardThreshold(src, w, h, level) {
+  const out = new Uint8Array(w * h);
+  for (let i = 0; i < w*h; i++) out[i] = src[i] < level ? 255 : 0;
+  return out;
+}
+
+// ── Scanline hatching preview ─────────────────────────────────
+function hatchPreview(src, w, h, cv) {
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, w, h);
+
+  const spacing = parseFloat(document.getElementById('hatch-spacing').value);
+  const angle   = parseFloat(document.getElementById('hatch-angle').value) * Math.PI / 180;
+  const levels  = parseInt(document.getElementById('hatch-levels').value);
+  const cross   = document.getElementById('hatch-cross').checked;
+
+  drawHatchLines(ctx, src, w, h, angle, spacing, levels);
+  if (cross) drawHatchLines(ctx, src, w, h, angle + Math.PI/2, spacing, levels);
+}
+
+function drawHatchLines(ctx, src, w, h, angle, spacingPx, levels) {
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1;
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  const diag = Math.sqrt(w*w + h*h);
+  for (let d = -diag; d < diag; d += spacingPx) {
+    const cx = w/2 + d * cos, cy = h/2 + d * sin;
+    const nx = -sin, ny = cos;
+    const x0 = cx - nx * diag, y0 = cy - ny * diag;
+    const x1 = cx + nx * diag, y1 = cy + ny * diag;
+
+    // Clip segment to image bounds and sample brightness
+    const segments = clipAndSample(src, w, h, x0, y0, x1, y1, levels);
+    for (const seg of segments) {
+      ctx.beginPath();
+      ctx.moveTo(seg.x0, seg.y0);
+      ctx.lineTo(seg.x1, seg.y1);
+      ctx.stroke();
+    }
+  }
+}
+
+// Liang-Barsky clip + brightness gate
+function clipAndSample(src, w, h, x0, y0, x1, y1, levels) {
+  // Sample midpoint brightness
+  const mx = (x0+x1)/2, my = (y0+y1)/2;
+  if (mx < 0 || mx >= w || my < 0 || my >= h) return [];
+  const bri = src[Math.round(my)*w + Math.round(mx)] / 255;
+  if (bri > (levels-1)/levels) return [];  // white area → no line
+  // Clip to bounds
+  const cx0 = Math.max(0, Math.min(w-1, x0));
+  const cy0 = Math.max(0, Math.min(h-1, y0));
+  const cx1 = Math.max(0, Math.min(w-1, x1));
+  const cy1 = Math.max(0, Math.min(h-1, y1));
+  return [{x0:cx0, y0:cy0, x1:cx1, y1:cy1}];
+}
+
+// ── Contour/isoline preview ───────────────────────────────────
+function contourPreview(src, w, h, cv) {
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, w, h);
+  const nLevels = parseInt(document.getElementById('ctr-levels').value);
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1;
+
+  for (let l = 0; l < nLevels; l++) {
+    const iso = (l + 0.5) / nLevels * 255;
+    marchingSquares(ctx, src, w, h, iso);
+  }
+}
+
+function marchingSquares(ctx, src, w, h, isoVal) {
+  for (let y = 0; y < h-1; y++) {
+    for (let x = 0; x < w-1; x++) {
+      const a = src[y*w+x], b = src[y*w+x+1];
+      const c = src[(y+1)*w+x+1], d = src[(y+1)*w+x];
+      const config = ((a>isoVal)?8:0)|((b>isoVal)?4:0)|((c>isoVal)?2:0)|((d>isoVal)?1:0);
+      const interp = (v1, v2) => (isoVal - v1) / (v2 - v1);
+      // Only draw the most common cases for preview
+      const top = {x: x + interp(a,b), y};
+      const right = {x: x+1, y: y + interp(b,c)};
+      const bottom = {x: x + interp(d,c), y: y+1};
+      const left = {x, y: y + interp(a,d)};
+      let lines = [];
+      switch(config) {
+        case 1: case 14: lines = [[left,bottom]]; break;
+        case 2: case 13: lines = [[bottom,right]]; break;
+        case 3: case 12: lines = [[left,right]]; break;
+        case 4: case 11: lines = [[top,right]]; break;
+        case 6: case 9:  lines = [[top,bottom]]; break;
+        case 7: case 8:  lines = [[top,left]]; break;
+        case 5:  lines = [[top,right],[left,bottom]]; break;
+        case 10: lines = [[top,left],[right,bottom]]; break;
+      }
+      for (const [p1,p2] of lines) {
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+      }
+    }
+  }
+}
+
+// ── Weighted stipple preview ──────────────────────────────────
+function stipplePreview(src, w, h, cv) {
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0,0,w,h);
+  const nDots = parseInt(document.getElementById('stip-count').value);
+  const dotR  = parseFloat(document.getElementById('stip-size').value) * 0.5;
+  ctx.fillStyle = '#000';
+  // Weighted random placement: darker pixels more likely to get dots
+  let totalWeight = 0;
+  const weights = new Float32Array(w*h);
+  for (let i = 0; i < w*h; i++) { weights[i] = 255 - src[i]; totalWeight += weights[i]; }
+  // CDF
+  const cdf = new Float32Array(w*h);
+  let acc = 0;
+  for (let i = 0; i < w*h; i++) { acc += weights[i]/totalWeight; cdf[i] = acc; }
+
+  for (let n = 0; n < nDots; n++) {
+    const r = Math.random();
+    let lo = 0, hi = w*h-1;
+    while (lo < hi) { const mid=(lo+hi)>>1; if(cdf[mid]<r) lo=mid+1; else hi=mid; }
+    const px = lo % w, py = Math.floor(lo / w);
+    ctx.beginPath();
+    ctx.arc(px, py, dotR, 0, 2*Math.PI);
+    ctx.fill();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Waypoint collection — shared between G-code and binary paths
+// ═══════════════════════════════════════════════════════════════
+// Each entry: {x, y, penDown}
+// Built once, consumed by both generators.
+let waypoints = [];
+
+// ═══════════════════════════════════════════════════════════════
+// Main process function — builds G-code AND binary in one pass
+// ═══════════════════════════════════════════════════════════════
+function processImage() {
+  if (!srcImage) return;
+  machineW = parseFloat(document.getElementById('cfg-w').value);
+  machineH = parseFloat(document.getElementById('cfg-h').value);
+  const margin = parseFloat(document.getElementById('cfg-margin').value);
+  const alg = document.getElementById('alg-mode').value;
+
+  document.getElementById('proc-progress').style.display = 'block';
+  setProgress(0, 'Preparing...');
+
+  setTimeout(() => {
+    try {
+      gcodeLines = []; waypoints = []; plgBuffer = null;
+      const feed  = parseInt(document.getElementById('gc-feed').value);
+      const tfeed = parseInt(document.getElementById('gc-travelfeed').value);
+
+      const drawW = machineW - 2*margin;
+      const drawH = machineH - 2*margin;
+      const scale = Math.min(drawW / srcW, drawH / srcH);
+      const offX  = margin + (drawW - srcW*scale)/2;
+      const offY  = margin + (drawH - srcH*scale)/2;
+      const toMM  = (px, py) => ({ x: offX + px*scale, y: offY + py*scale });
+
+      // G-code header
+      gcodeLines.push('; Polargraph G-code');
+      gcodeLines.push(`; Algorithm: ${alg}`);
+      gcodeLines.push(`; Generated: ${new Date().toISOString()}`);
+      gcodeLines.push('G90'); gcodeLines.push('G28'); gcodeLines.push('M5'); gcodeLines.push('');
+
+      setProgress(10, 'Processing pixels...');
+
+      if (alg === 'floyd' || alg === 'ordered' || alg === 'threshold') {
+        let bilevel;
+        if (alg==='floyd')    bilevel = floydSteinberg(adjustedPixels, srcW, srcH, parseInt(document.getElementById('fs-threshold').value));
+        else if (alg==='ordered') bilevel = orderedDither(adjustedPixels, srcW, srcH, parseInt(document.getElementById('ord-size').value));
+        else                  bilevel = hardThreshold(adjustedPixels, srcW, srcH, parseInt(document.getElementById('thr-level').value));
+        setProgress(40, 'Extracting segments...');
+        generateRasterGcode(bilevel, srcW, srcH, toMM, feed, tfeed, 0);
+      } else if (alg === 'hatch') {
+        setProgress(40, 'Generating hatch lines...');
+        generateHatchGcode(toMM, feed, tfeed, offX, offY, srcW*scale, srcH*scale);
+      } else if (alg === 'contour') {
+        setProgress(40, 'Tracing contours...');
+        generateContourGcode(toMM, feed, tfeed);
+      } else if (alg === 'voronoi') {
+        setProgress(40, 'Placing stipple dots...');
+        generateStippleGcode(toMM, feed, tfeed);
+      }
+
+      gcodeLines.push(''); gcodeLines.push('M5'); gcodeLines.push('G28'); gcodeLines.push('; END');
+
+      // ── Build binary from waypoints ────────────────────────
+      setProgress(70, 'Two-pass velocity planning...');
+      const stepsPerMm = parseFloat(document.getElementById('cfg-spm')?.value || '80');
+      const cfg = {
+        stepsPerMm,
+        maxFeed:      feed / 60,       // mm/min → mm/s
+        acceleration: 400,
+        junctionSpeed: 5,
+        machineWidth: machineW,
+        machineHeight: machineH
+      };
+
+      if (waypoints.length > 1) {
+        const result = buildPlgBuffer(waypoints, cfg);
+        if (result) {
+          plgBuffer = result.buffer;
+          const secs = Math.round(result.estMs / 1000);
+          const mm = secs >= 60 ? `${Math.floor(secs/60)}m ${secs%60}s` : secs + 's';
+          document.getElementById('plg-stats').innerHTML =
+            `Segments: <span class="stat-val">${result.segCount.toLocaleString()}</span>  ` +
+            `Est. time: <span class="stat-val">${mm}</span>  ` +
+            `Size: <span class="stat-val">${(result.buffer.byteLength/1024).toFixed(1)} KB</span>`;
+          document.getElementById('btn-dl-plg').disabled = false;
+        }
+      }
+
+      setProgress(90, 'Rendering toolpath...');
+      renderToolpath();
+      setProgress(100, `Done — ${gcodeLines.length} G-code lines, ${waypoints.length} waypoints`);
+
+      const lineCount = gcodeLines.filter(l => l.startsWith('G1')).length;
+      const liftCount = gcodeLines.filter(l => l.startsWith('M5')).length - 1;
+      document.getElementById('image-stats').style.display = 'block';
+      document.getElementById('image-stats').innerHTML =
+        `<div>Draw lines: <span class="stat-val">${lineCount.toLocaleString()}</span></div>` +
+        `<div>Pen lifts: <span class="stat-val">${Math.max(0,liftCount)}</span></div>` +
+        `<div>Waypoints: <span class="stat-val">${waypoints.length.toLocaleString()}</span></div>`;
+
+      document.getElementById('gcode-display').textContent = gcodeLines.join('\n');
+      document.getElementById('gcode-stats').innerHTML =
+        `G-code lines: <span class="stat-val">${gcodeLines.length.toLocaleString()}</span><br>` +
+        `G1 moves: <span class="stat-val">${lineCount.toLocaleString()}</span>`;
+      document.getElementById('btn-dl-gc').disabled = false;
+      document.getElementById('btn-copy-gc').disabled = false;
+      const ip = document.getElementById('machine-ip').value.trim();
+      document.getElementById('btn-send').disabled = !ip;
+      document.getElementById('btn-upload-only').disabled = !ip;
+
+    } catch(e) {
+      setProgress(0, 'Error: ' + e.message);
+      console.error(e);
+    }
+  }, 20);
+}
+
+function setProgress(pct, msg) {
+  document.getElementById('prog-fill').style.width = pct + '%';
+  document.getElementById('proc-status').textContent = msg;
+}
+
+// ── Raster scan G-code + waypoints ───────────────────────────
+function generateRasterGcode(bilevel, w, h, toMM, feed, tfeed, prec) {
+  let penDown = false;
+  let lastX = null, lastY = null;
+
+  // Start waypoint at home (centre-top)
+  waypoints.push({ x: machineW/2, y: 200, penDown: false });
+
+  for (let row = 0; row < h; row++) {
+    const leftToRight = (row % 2 === 0);
+    const segs = [];
+    let runStart = null;
+    const scan = leftToRight
+      ? Array.from({length:w}, (_,i) => i)
+      : Array.from({length:w}, (_,i) => w-1-i);
+
+    for (const x of scan) {
+      const ink = bilevel[row*w + x] > 0;
+      if (ink && runStart === null) runStart = x;
+      if (!ink && runStart !== null) {
+        segs.push({x0: Math.min(runStart, x-1), x1: Math.max(runStart, x-1)});
+        runStart = null;
+      }
+    }
+    if (runStart !== null) {
+      segs.push({x0: Math.min(runStart, scan[scan.length-1]),
+                 x1: Math.max(runStart, scan[scan.length-1])});
+    }
+
+    for (const seg of segs) {
+      const p0 = toMM(seg.x0, row);
+      const p1 = toMM(seg.x1, row);
+
+      if (!penDown || lastX === null || Math.abs(p0.x-lastX) > 0.1 || Math.abs(p0.y-lastY) > 0.1) {
+        if (penDown) { gcodeLines.push('M5'); penDown = false; }
+        gcodeLines.push(`G0 X${p0.x.toFixed(2)} Y${p0.y.toFixed(2)}`);
+        gcodeLines.push('M3');
+        penDown = true;
+        waypoints.push({ x: p0.x, y: p0.y, penDown: false }); // travel
+        waypoints.push({ x: p0.x, y: p0.y, penDown: true  }); // pen down
+      }
+      gcodeLines.push(`G1 X${p1.x.toFixed(2)} Y${p1.y.toFixed(2)} F${feed}`);
+      waypoints.push({ x: p1.x, y: p1.y, penDown: true });
+      lastX = p1.x; lastY = p1.y;
+    }
+  }
+  if (penDown) { gcodeLines.push('M5'); waypoints.push({ x: lastX, y: lastY, penDown: false }); }
+}
+
+// ── Hatch G-code ──────────────────────────────────────────────
+function generateHatchGcode(toMM, feed, tfeed, ox, oy, dw, dh) {
+  const spacingPx = parseFloat(document.getElementById('hatch-spacing').value);
+  const angleDeg  = parseFloat(document.getElementById('hatch-angle').value);
+  const angle     = angleDeg * Math.PI / 180;
+  const levels    = parseInt(document.getElementById('hatch-levels').value);
+  const cross     = document.getElementById('hatch-cross').checked;
+
+  emitHatchLines(toMM, feed, spacingPx, angle, levels);
+  if (cross) emitHatchLines(toMM, feed, spacingPx, angle + Math.PI/2, levels);
+}
+
+function emitHatchLines(toMM, feed, spacingPx, angle, levels) {
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  const diag = Math.sqrt(srcW*srcW + srcH*srcH);
+  for (let d = -diag; d < diag; d += spacingPx) {
+    const cx = srcW/2 + d*cos, cy = srcH/2 + d*sin;
+    const nx = -sin, ny = cos;
+    // Find entry/exit points in image bounds (sample 100 pts)
+    let entry = null, exit = null;
+    for (let t = 0; t <= 100; t++) {
+      const f = t / 100;
+      const px = cx + nx * diag * (2*f - 1);
+      const py = cy + ny * diag * (2*f - 1);
+      if (px >= 0 && px < srcW && py >= 0 && py < srcH) {
+        if (!entry) entry = {px, py};
+        exit = {px, py};
+      }
+    }
+    if (!entry) continue;
+    const mx = (entry.px + exit.px) / 2;
+    const my = (entry.py + exit.py) / 2;
+    const bri = adjustedPixels[Math.round(my) * srcW + Math.round(mx)] / 255;
+    if (bri > (levels-1)/levels) continue;  // too bright → skip
+
+    const p0 = toMM(entry.px, entry.py);
+    const p1 = toMM(exit.px, exit.py);
+    gcodeLines.push(`G0 X${p0.x.toFixed(2)} Y${p0.y.toFixed(2)}`);
+    gcodeLines.push('M3');
+    gcodeLines.push(`G1 X${p1.x.toFixed(2)} Y${p1.y.toFixed(2)} F${feed}`);
+    gcodeLines.push('M5');
+  }
+}
+
+// ── Contour G-code ────────────────────────────────────────────
+function generateContourGcode(toMM, feed, tfeed) {
+  const nLevels = parseInt(document.getElementById('ctr-levels').value);
+  for (let l = 0; l < nLevels; l++) {
+    const iso = (l + 0.5) / nLevels * 255;
+    const paths = traceIsolines(adjustedPixels, srcW, srcH, iso);
+    for (const path of paths) {
+      if (path.length < 2) continue;
+      const p0 = toMM(path[0].x, path[0].y);
+      gcodeLines.push(`G0 X${p0.x.toFixed(2)} Y${p0.y.toFixed(2)}`);
+      gcodeLines.push('M3');
+      for (let i = 1; i < path.length; i++) {
+        const p = toMM(path[i].x, path[i].y);
+        gcodeLines.push(`G1 X${p.x.toFixed(2)} Y${p.y.toFixed(2)} F${feed}`);
+      }
+      gcodeLines.push('M5');
+    }
+  }
+}
+
+function traceIsolines(src, w, h, iso) {
+  // Simplified: collect marching-squares edge midpoints as disconnected line segments
+  const segs = [];
+  for (let y = 0; y < h-1; y++) {
+    for (let x = 0; x < w-1; x++) {
+      const a=src[y*w+x], b=src[y*w+x+1], c=src[(y+1)*w+x+1], d=src[(y+1)*w+x];
+      const interp = (v1,v2) => (iso-v1)/(v2-v1);
+      const top   = {x: x+interp(a,b), y};
+      const right = {x: x+1, y: y+interp(b,c)};
+      const bot   = {x: x+interp(d,c), y: y+1};
+      const left  = {x, y: y+interp(a,d)};
+      const cfg=((a>iso)?8:0)|((b>iso)?4:0)|((c>iso)?2:0)|((d>iso)?1:0);
+      const table=[[],[left,bot],[bot,right],[left,right],[top,right],
+                    [top,left,bot,right],[top,bot],[top,left],[top,left],[top,bot],
+                    [top,right,left,bot],[top,right],[left,right],[bot,right],[left,bot],[]];
+      const pts = table[cfg];
+      if (pts.length===2) segs.push([pts[0],pts[1]]);
+      else if (pts.length===4) { segs.push([pts[0],pts[1]]); segs.push([pts[2],pts[3]]); }
+    }
+  }
+  // Naively return as individual 2-point paths (not chained for simplicity)
+  return segs;
+}
+
+// ── Stipple G-code ────────────────────────────────────────────
+function generateStippleGcode(toMM, feed, tfeed) {
+  const nDots = parseInt(document.getElementById('stip-count').value);
+  const dotSz = parseFloat(document.getElementById('stip-size').value);
+  const weights = new Float32Array(srcW * srcH);
+  let totalW = 0;
+  for (let i = 0; i < srcW*srcH; i++) { weights[i] = 255 - adjustedPixels[i]; totalW += weights[i]; }
+  const cdf = new Float32Array(srcW*srcH);
+  let acc = 0;
+  for (let i = 0; i < srcW*srcH; i++) { acc += weights[i]/totalW; cdf[i] = acc; }
+
+  for (let n = 0; n < nDots; n++) {
+    const r = Math.random();
+    let lo=0, hi=srcW*srcH-1;
+    while(lo<hi){const mid=(lo+hi)>>1; if(cdf[mid]<r) lo=mid+1; else hi=mid;}
+    const px = lo % srcW, py = Math.floor(lo/srcW);
+    const p = toMM(px, py);
+    // Draw a tiny circle (approximated as 4-point arc)
+    const rad = dotSz / 2;
+    gcodeLines.push(`G0 X${(p.x+rad).toFixed(2)} Y${p.y.toFixed(2)}`);
+    gcodeLines.push('M3');
+    gcodeLines.push(`G1 X${p.x.toFixed(2)} Y${(p.y+rad).toFixed(2)} F${feed}`);
+    gcodeLines.push(`G1 X${(p.x-rad).toFixed(2)} Y${p.y.toFixed(2)} F${feed}`);
+    gcodeLines.push(`G1 X${p.x.toFixed(2)} Y${(p.y-rad).toFixed(2)} F${feed}`);
+    gcodeLines.push(`G1 X${(p.x+rad).toFixed(2)} Y${p.y.toFixed(2)} F${feed}`);
+    gcodeLines.push('M5');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Toolpath preview renderer
+// ─────────────────────────────────────────────────────────────
+function renderToolpath() {
+  const cv = document.getElementById('cv-toolpath');
+  // Scale canvas to machine aspect ratio
+  const aspect = machineH / machineW;
+  const W = Math.min(srcW, 800);
+  const H = Math.round(W * aspect);
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#fefefe';
+  ctx.fillRect(0, 0, W, H);
+
+  const sx = W / machineW, sy = H / machineH;
+  let curX = W/2, curY = 0;
+  let penD = false;
+  ctx.strokeStyle = '#1a1a2e';
+  ctx.lineWidth = 0.7;
+
+  for (const line of gcodeLines) {
+    if (line.startsWith('M3')) { penD = true; ctx.beginPath(); ctx.moveTo(curX, curY); }
+    else if (line.startsWith('M5')) { if(penD) ctx.stroke(); penD = false; }
+    else if (line.startsWith('G0') || line.startsWith('G1')) {
+      const xm = line.match(/X([\d.]+)/), ym = line.match(/Y([\d.]+)/);
+      if (xm) curX = parseFloat(xm[1]) * sx;
+      if (ym) curY = parseFloat(ym[1]) * sy;
+      if (penD) ctx.lineTo(curX, curY);
+      else { ctx.beginPath(); ctx.moveTo(curX, curY); }
+    }
+  }
+  if (penD) ctx.stroke();
+
+  // Draw anchors
+  ctx.fillStyle = '#7c6af7';
+  ctx.beginPath(); ctx.arc(0, 0, 5, 0, 2*Math.PI); ctx.fill();
+  ctx.beginPath(); ctx.arc(W, 0, 5, 0, 2*Math.PI); ctx.fill();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// G-code export
+// ═══════════════════════════════════════════════════════════════
+function downloadGcode() {
+  const blob = new Blob([gcodeLines.join('\n')], {type:'text/plain'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'polargraph.gcode'; a.click();
+}
+
+function downloadBinary() {
+  if (!plgBuffer) return;
+  const blob = new Blob([plgBuffer], {type:'application/octet-stream'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'polargraph.plg'; a.click();
+}
+
+function copyGcode() {
+  navigator.clipboard.writeText(gcodeLines.join('\n'));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Send page: upload G-code to machine, then start job
+// ═══════════════════════════════════════════════════════════════
+let liveTimer = null;
+let liveTrail = [];
+let livePrevDown = false;
+
+async function testConnection() {
+  const ip = document.getElementById('machine-ip').value.trim();
+  const badge = document.getElementById('conn-status');
+  badge.className = 'badge'; badge.textContent = '…';
+  try {
+    const r = await fetch(`http://${ip}/status`, {signal: AbortSignal.timeout(4000)});
+    if (r.ok) {
+      badge.className = 'badge ok'; badge.textContent = 'Connected';
+      document.getElementById('btn-send').disabled = gcodeLines.length === 0;
+      document.getElementById('btn-upload-only').disabled = gcodeLines.length === 0;
+      document.getElementById('btn-dashboard').disabled = false;
+      startLivePoll(ip);
+    } else {
+      badge.className = 'badge err'; badge.textContent = 'Error ' + r.status;
+    }
+  } catch {
+    badge.className = 'badge err'; badge.textContent = 'Unreachable';
+  }
+}
+
+// ── Upload helpers ────────────────────────────────────────────
+function gcodeBlob() {
+  return new Blob([gcodeLines.join('\n')], {type: 'text/plain'});
+}
+
+function doUploadBuffer(ip, buffer, filename) {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([buffer], {type:'application/octet-stream'});
+    const fd = new FormData(); fd.append('file', blob, filename);
+    document.getElementById('ul-bar-wrap').style.display = 'block';
+    const fill = document.getElementById('ul-fill');
+    const stats = document.getElementById('send-stats');
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `http://${ip}/upload`);
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) {
+        const pct = Math.round(e.loaded/e.total*100);
+        fill.style.width = pct+'%';
+        stats.textContent = `Uploading ${filename}: ${pct}% (${(e.loaded/1024).toFixed(1)} KB)`;
+      }
+    };
+    xhr.onload = () => {
+      fill.style.width='100%';
+      stats.textContent = `✓ ${filename} uploaded (${(buffer.byteLength/1024).toFixed(1)} KB binary)`;
+      xhr.status===200 ? resolve() : reject(new Error('HTTP '+xhr.status));
+    };
+    xhr.onerror = () => reject(new Error('Network error'));
+    xhr.send(fd);
+  });
+}
+
+function doUpload(ip) {
+  return new Promise((resolve, reject) => {
+    const blob = gcodeBlob();
+    const fd = new FormData();
+    fd.append('file', blob, 'job.gcode');
+
+    document.getElementById('ul-bar-wrap').style.display = 'block';
+    const fill  = document.getElementById('ul-fill');
+    const stats = document.getElementById('send-stats');
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `http://${ip}/upload`);
+
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) {
+        const pct = Math.round(e.loaded / e.total * 100);
+        fill.style.width = pct + '%';
+        stats.textContent = `Uploading ${pct}% (${(e.loaded/1024).toFixed(1)} / ${(e.total/1024).toFixed(1)} KB)`;
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        fill.style.width = '100%';
+        stats.textContent = `Upload complete — ${(blob.size/1024).toFixed(1)} KB`;
+        resolve();
+      } else {
+        reject(new Error('HTTP ' + xhr.status));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error'));
+    xhr.send(fd);
+  });
+}
+
+async function uploadAndStart() {
+  const ip = document.getElementById('machine-ip').value.trim();
+  if (!ip) return;
+  document.getElementById('btn-send').disabled = true;
+  try {
+    if (plgBuffer) {
+      await doUploadBuffer(ip, plgBuffer, 'job.plg');
+    } else if (gcodeLines.length > 0) {
+      await doUpload(ip);
+    } else {
+      document.getElementById('send-stats').textContent = 'No job to upload — process an image first.';
+      document.getElementById('btn-send').disabled = false;
+      return;
+    }
+    const r = await fetch(`http://${ip}/job/start`, {method:'POST'});
+    const t = await r.text();
+    document.getElementById('send-stats').textContent +=
+      r.ok ? ` — ${t}` : ` — Start failed: ${t}`;
+    startLivePoll(ip);
+  } catch(e) {
+    document.getElementById('send-stats').textContent = 'Error: ' + e.message;
+  }
+  document.getElementById('btn-send').disabled = false;
+}
+
+async function uploadOnly() {
+  const ip = document.getElementById('machine-ip').value.trim();
+  if (!ip) return;
+  document.getElementById('btn-upload-only').disabled = true;
+  try {
+    if (plgBuffer) await doUploadBuffer(ip, plgBuffer, 'job.plg');
+    else           await doUpload(ip);
+    document.getElementById('send-stats').textContent += ' — ready to start from dashboard.';
+  } catch(e) {
+    document.getElementById('send-stats').textContent = 'Error: ' + e.message;
+  }
+  document.getElementById('btn-upload-only').disabled = false;
+}
+
+async function jobCtrl(cmd) {
+  const ip = document.getElementById('machine-ip').value.trim();
+  if (!ip) return;
+  await fetch(`http://${ip}/job/${cmd}`, {method:'POST'});
+}
+
+// ── Live poll ─────────────────────────────────────────────────
+function startLivePoll(ip) {
+  if (liveTimer) clearInterval(liveTimer);
+  liveTimer = setInterval(() => pollLive(ip), 700);
+}
+
+async function pollLive(ip) {
+  try {
+    const r = await fetch(`http://${ip}/status`);
+    const d = await r.json();
+    drawLive(d.x, d.y, d.penUp);
+
+    // Job state badge
+    const jb = document.getElementById('live-badge');
+    const s = d.job?.state || 'idle';
+    jb.textContent = s.toUpperCase();
+    jb.className = 'badge ' + ({idle:'',running:'ok',paused:'',stopping:'err'}[s]||'');
+
+    const pct = d.job?.pct || 0;
+    document.getElementById('live-prog').style.width = pct + '%';
+    document.getElementById('live-pct').textContent =
+      `${d.job?.linesDone?.toLocaleString() || 0} / ${d.job?.linesTotal?.toLocaleString() || 0} lines (${pct}%)`;
+
+    document.getElementById('live-pause') .disabled = s !== 'running';
+    document.getElementById('live-resume').disabled = s !== 'paused';
+    document.getElementById('live-stop')  .disabled = s === 'idle';
+  } catch {}
+}
+
+function drawLive(x, y, penUp) {
+  const cv = document.getElementById('cv-live');
+  if (!cv.width || cv.width < 10) { cv.width = cv.offsetWidth || 500; cv.height = Math.round(cv.width * machineH / machineW); }
+  const W = cv.width, H = cv.height;
+  const sx = px => px / machineW * W;
+  const sy = py => py / machineH * H;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#0a0a0f'; ctx.fillRect(0,0,W,H);
+  // Cords
+  ctx.strokeStyle = '#1e2237'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(sx(x),sy(y)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W,0); ctx.lineTo(sx(x),sy(y)); ctx.stroke();
+  // Trail
+  if (!penUp) {
+    liveTrail.push({x, y, lift: !livePrevDown});
+  }
+  livePrevDown = !penUp;
+  if (liveTrail.length > 1) {
+    ctx.strokeStyle = '#7c6af7'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (const p of liveTrail) {
+      if (p.lift) ctx.moveTo(sx(p.x), sy(p.y));
+      else        ctx.lineTo(sx(p.x), sy(p.y));
+    }
+    ctx.stroke();
+    if (liveTrail.length > 6000) liveTrail.splice(0, 1500);
+  }
+  // Gondola
+  ctx.fillStyle = penUp ? '#64748b' : '#f59e0b';
+  ctx.beginPath(); ctx.arc(sx(x), sy(y), 5, 0, 2*Math.PI); ctx.fill();
+  // Anchors
+  ctx.fillStyle = '#7c6af7';
+  ctx.beginPath(); ctx.arc(0, 0, 4, 0, 2*Math.PI); ctx.fill();
+  ctx.beginPath(); ctx.arc(W, 0, 4, 0, 2*Math.PI); ctx.fill();
+}
+
+// Init
+onAlgChange();
+updatePreview();
+</script>
+</body>
+</html>
