@@ -69,7 +69,7 @@ void setup() {
     Config::load();
     Config::print();
 
-    penServo.begin(PIN_SERVO, SERVO_UP_ANGLE, SERVO_DOWN_ANGLE);
+    penServo.begin();  // 4 servos on GPIO 2,4,13,14
     steppers.begin();
     planner.begin(&kinematics, &steppers, &penServo);   // pen wired in now
     stallHoming.begin(steppers.driverL(), steppers.driverR(), &steppers, &kinematics);

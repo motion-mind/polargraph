@@ -225,6 +225,7 @@ canvas { display: block; }
 }
 #page-image { display: flex; }
 #page-gcode { display: none; }
+#page-colours{ display: none; }
 #page-send   { display: none; }
 </style>
 </head>
@@ -239,8 +240,9 @@ canvas { display: block; }
 
 <div class="tabs">
   <div class="tab active" onclick="showPage('image',this)">① Image</div>
-  <div class="tab" onclick="showPage('gcode',this)">② G-code</div>
-  <div class="tab" onclick="showPage('send',this)">③ Send</div>
+  <div class="tab" onclick="showPage('colours',this)">② Colours</div>
+  <div class="tab" onclick="showPage('gcode',this)">③ Export</div>
+  <div class="tab" onclick="showPage('send',this)">④ Send</div>
 </div>
 
 <!-- ═══════════════════════ PAGE 1: IMAGE ═════════════════════ -->
@@ -499,6 +501,77 @@ canvas { display: block; }
   </div>
 </div>
 
+
+<!-- ═══════════════════ PAGE 2: COLOUR SEPARATION ══════════════════ -->
+<div id="page-colours" class="workspace" style="display:none">
+  <div class="sidebar">
+    <div class="card">
+      <div class="section-title">Colour Mode</div>
+      <select id="colour-mode" onchange="onColourModeChange()">
+        <option value="cmyk">CMYK (4 pens)</option>
+        <option value="rgb">RGB + Black (4 pens)</option>
+        <option value="custom">Custom (assign colours manually)</option>
+        <option value="mono">Monochrome (1 pen)</option>
+      </select>
+    </div>
+
+    <div class="card" id="pen-assign-card">
+      <div class="section-title">Pen Assignment</div>
+      <div id="pen-slots"></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Separation Settings</div>
+      <div class="row">
+        <label>GCR (Grey Component Replacement)</label>
+        <input type="range" id="sep-gcr" min="0" max="100" value="40"
+               oninput="document.getElementById('v-gcr').textContent=this.value+'%'">
+        <span class="val-display" id="v-gcr">40%</span>
+      </div>
+      <div class="row">
+        <label>Layer blending</label>
+        <select id="sep-blend">
+          <option value="screen">Screen (lighter)</option>
+          <option value="multiply" selected>Multiply (darker)</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>Dither per layer</label>
+        <select id="sep-dither">
+          <option value="floyd" selected>Floyd-Steinberg</option>
+          <option value="ordered">Ordered (Bayer 4×4)</option>
+          <option value="threshold">Hard threshold</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Tool Offsets (mm from gondola centre)</div>
+      <div style="font-size:.74rem;color:var(--muted);margin-bottom:.5rem">
+        Measure your gondola and enter the XY position of each pen tip.
+        These are applied during G-code/binary generation.
+      </div>
+      <div id="offset-inputs"></div>
+    </div>
+
+    <div class="btn-row">
+      <button onclick="separateColours()" id="btn-separate">▶ Separate Colours</button>
+    </div>
+    <div id="sep-progress" style="display:none">
+      <div class="progress-bar"><div class="progress-fill" id="sep-prog-fill"></div></div>
+      <div id="sep-status" class="stats"></div>
+    </div>
+  </div>
+
+  <div class="main-area">
+    <div id="colour-previews" style="width:100%">
+      <div style="color:var(--muted);font-size:.85rem;padding:1rem">
+        Process an image first, then open this tab to separate into layers.
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════════════════ PAGE 3: SEND ═════════════════════ -->
 <div id="page-send" class="workspace" style="display:none">
   <div class="sidebar">
@@ -578,8 +651,9 @@ let machineW = 700, machineH = 900;  // mm
 // ═══════════════════════════════════════════════════════════════
 // Binary planner — two-pass velocity planning, cord-space output
 // ═══════════════════════════════════════════════════════════════
-const PLG_MAGIC    = [0x50,0x4C,0x47,0x31]; // 'PLG1'
-const PLG_VERSION  = 2;
+const PLG_MAGIC       = [0x50,0x4C,0x47,0x31]; // 'PLG1'
+const PLG_VERSION     = 3;   // multi-pen
+const PLG_TOOL_CHANGE = 0x10; // select new pen
 const PLG_PEN_DOWN = 0x01;
 const PLG_PEN_UP   = 0x02;
 const PLG_LAST     = 0x04;
@@ -734,10 +808,12 @@ function buildPlgBuffer(waypoints, cfg) {
   const view = new DataView(buf);
   let off = 0;
 
-  // Header
+  // Header (v3 format)
   PLG_MAGIC.forEach(b => { view.setUint8(off++, b); });
   view.setUint8(off++, PLG_VERSION);
-  view.setUint8(off++, 0); view.setUint8(off++, 0); view.setUint8(off++, 0); // pad
+  view.setUint8(off++, cfg.penCount || 1);     // penCount
+  view.setUint8(off++, cfg.layerCount || 1);   // layerCount
+  view.setUint8(off++, 0);                     // pad
   view.setUint32(off, planned.length, true); off += 4;
   view.setFloat32(off, cfg.machineWidth, true); off += 4;
   view.setFloat32(off, cfg.machineHeight, true); off += 4;
@@ -755,7 +831,7 @@ function buildPlgBuffer(waypoints, cfg) {
     view.setUint16(off,    s.accelSteps,     true); off += 2;
     view.setUint16(off,    s.decelSteps,     true); off += 2;
     view.setUint8( off++,  s.flags);
-    view.setUint8( off++,  0);  // pad
+    view.setUint8( off++,  s.penIndex || 0);  // pen index for tool change
   }
 
   return { buffer: buf, segCount: planned.length, estMs: Math.round(estMs) };
@@ -765,8 +841,10 @@ function buildPlgBuffer(waypoints, cfg) {
 function showPage(name, el) {
   document.querySelectorAll('[id^=page-]').forEach(p => p.style.display = 'none');
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('page-' + name).style.display = 'flex';
+  const pg = document.getElementById('page-' + name);
+  if (pg) pg.style.display = 'flex';
   el.classList.add('active');
+  if (name === 'colours') renderColourPreviews();
 }
 
 function showPreview(name, el) {
@@ -1681,6 +1759,433 @@ function drawLive(x, y, penUp) {
   ctx.beginPath(); ctx.arc(0, 0, 4, 0, 2*Math.PI); ctx.fill();
   ctx.beginPath(); ctx.arc(W, 0, 4, 0, 2*Math.PI); ctx.fill();
 }
+
+
+// ═══════════════════════════════════════════════════════════════
+// Colour separation — multi-pen branch
+// ═══════════════════════════════════════════════════════════════
+
+const PEN_COLOURS = {
+  cmyk: [
+    { name:'Cyan',    hex:'#00bcd4', channel:'C' },
+    { name:'Magenta', hex:'#e91e63', channel:'M' },
+    { name:'Yellow',  hex:'#ffeb3b', channel:'Y' },
+    { name:'Black',   hex:'#212121', channel:'K' },
+  ],
+  rgb: [
+    { name:'Red',     hex:'#f44336', channel:'R' },
+    { name:'Green',   hex:'#4caf50', channel:'G' },
+    { name:'Blue',    hex:'#2196f3', channel:'B' },
+    { name:'Black',   hex:'#212121', channel:'K' },
+  ],
+  mono: [
+    { name:'Black',   hex:'#212121', channel:'K' },
+  ],
+};
+
+// Per-layer bilevel pixel arrays after separation
+let layerPixels = [];   // array of Uint8Array, one per active pen
+let layerWaypoints = []; // waypoints per layer
+
+function onColourModeChange() {
+  buildPenSlots();
+  buildOffsetInputs();
+}
+
+function buildPenSlots() {
+  const mode   = document.getElementById('colour-mode').value;
+  const pens   = PEN_COLOURS[mode] || PEN_COLOURS.cmyk;
+  const custom = mode === 'custom';
+  const el     = document.getElementById('pen-slots');
+  el.innerHTML = '';
+
+  for (let i = 0; i < Math.min(pens.length, 4); i++) {
+    const p = pens[i];
+    el.innerHTML += `
+      <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.5rem">
+        <div style="width:16px;height:16px;border-radius:50%;background:${p.hex};
+                    border:1px solid #444;flex-shrink:0"></div>
+        <span style="flex:1;font-size:.8rem">Pen ${i}: ${p.name}</span>
+        ${custom ? `<input type="text" value="${p.name}"
+                    style="width:80px;font-size:.75rem"
+                    onchange="customPenName(${i},this.value)">` : ''}
+      </div>`;
+  }
+}
+
+function buildOffsetInputs() {
+  const mode  = document.getElementById('colour-mode').value;
+  const count = mode === 'mono' ? 1 : 4;
+  const defaults = [
+    {x:-10,y:-10},{x:10,y:-10},{x:10,y:10},{x:-10,y:10}
+  ];
+  const el = document.getElementById('offset-inputs');
+  el.innerHTML = '';
+  for (let i = 0; i < count; i++) {
+    el.innerHTML += `
+      <div style="display:flex;gap:.4rem;align-items:center;margin-bottom:.4rem">
+        <span style="font-size:.78rem;color:var(--muted);width:40px">Pen ${i}</span>
+        <input type="number" id="ox${i}" value="${defaults[i].x}" step="0.5"
+               style="width:60px" placeholder="X mm">
+        <input type="number" id="oy${i}" value="${defaults[i].y}" step="0.5"
+               style="width:60px" placeholder="Y mm">
+      </div>`;
+  }
+}
+
+function renderColourPreviews() {
+  buildPenSlots();
+  buildOffsetInputs();
+  if (!srcImage) return;
+  const el = document.getElementById('colour-previews');
+  if (layerPixels.length === 0) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:.85rem;padding:1rem">Click ▶ Separate Colours to generate layer previews.</div>';
+    return;
+  }
+  renderLayerPreviews();
+}
+
+// ── CMYK/RGB separation ───────────────────────────────────────
+function separateColours() {
+  if (!srcImage) { alert('Process an image first.'); return; }
+
+  document.getElementById('sep-progress').style.display = 'block';
+  setSepProgress(0, 'Separating...');
+
+  setTimeout(() => {
+    const mode   = document.getElementById('colour-mode').value;
+    const gcr    = parseInt(document.getElementById('sep-gcr').value) / 100;
+    const dither = document.getElementById('sep-dither').value;
+
+    // Get source RGB pixels
+    const cv  = document.createElement('canvas');
+    cv.width  = srcW; cv.height = srcH;
+    const ctx = cv.getContext('2d');
+    ctx.drawImage(srcImage, 0, 0);
+    const rgba = ctx.getImageData(0, 0, srcW, srcH).data;
+
+    const n = srcW * srcH;
+    layerPixels = [];
+
+    if (mode === 'mono') {
+      // Just use the adjustedPixels greyscale
+      const bilevel = floydSteinberg(adjustedPixels, srcW, srcH, 128);
+      layerPixels = [bilevel];
+    } else if (mode === 'cmyk') {
+      // RGB → CMY → CMYK with GCR
+      const C = new Float32Array(n);
+      const M = new Float32Array(n);
+      const Y = new Float32Array(n);
+      const K = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const r = rgba[i*4]/255, g = rgba[i*4+1]/255, b = rgba[i*4+2]/255;
+        let c = 1-r, m = 1-g, ye = 1-b;
+        const k = Math.min(c, m, ye) * gcr;
+        C[i] = c-k; M[i] = m-k; Y[i] = ye-k; K[i] = k + (1-gcr)*Math.min(c,m,ye);
+      }
+      [C,M,Y,K].forEach(ch => {
+        const grey = new Uint8ClampedArray(n);
+        for (let i=0;i<n;i++) grey[i] = Math.round(ch[i]*255);
+        layerPixels.push(ditherLayer(grey, srcW, srcH, dither));
+      });
+    } else if (mode === 'rgb') {
+      // RGB + synthesised black channel
+      const R=new Float32Array(n), G=new Float32Array(n),
+            B=new Float32Array(n), Bl=new Float32Array(n);
+      for (let i=0;i<n;i++) {
+        R[i]=rgba[i*4]/255; G[i]=rgba[i*4+1]/255; B[i]=rgba[i*4+2]/255;
+        Bl[i]=(1-Math.max(R[i],G[i],B[i]))*gcr;
+      }
+      [R,G,B,Bl].forEach(ch => {
+        const grey = new Uint8ClampedArray(n);
+        for (let i=0;i<n;i++) grey[i] = Math.round((1-ch[i])*255); // invert: dark=ink
+        layerPixels.push(ditherLayer(grey, srcW, srcH, dither));
+      });
+    }
+
+    setSepProgress(70, 'Rendering previews...');
+    renderLayerPreviews();
+    setSepProgress(100, `Done — ${layerPixels.length} layers`);
+  }, 20);
+}
+
+function ditherLayer(grey, w, h, method) {
+  if (method==='floyd')    return floydSteinberg(grey, w, h, 128);
+  if (method==='ordered')  return orderedDither(grey, w, h, 4);
+  return hardThreshold(grey, w, h, 128);
+}
+
+function renderLayerPreviews() {
+  const mode  = document.getElementById('colour-mode').value;
+  const pens  = PEN_COLOURS[mode] || PEN_COLOURS.cmyk;
+  const el    = document.getElementById('colour-previews');
+  el.innerHTML = '';
+
+  const grid = document.createElement('div');
+  grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;width:100%';
+
+  layerPixels.forEach((pixels, i) => {
+    const pen  = pens[i] || {name:`Pen ${i}`, hex:'#888'};
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `<h3 style="display:flex;align-items:center;gap:.5rem">
+      <span style="width:14px;height:14px;border-radius:50%;background:${pen.hex};
+                   display:inline-block;border:1px solid #555"></span>
+      Pen ${i} — ${pen.name}
+      <span class="badge b-ok" style="margin-left:auto">
+        ${pixels.filter(p=>p>0).length.toLocaleString()} px
+      </span>
+    </h3>`;
+
+    const cv  = document.createElement('canvas');
+    cv.width  = srcW; cv.height = srcH;
+    cv.style.cssText = 'width:100%;border-radius:6px;margin-top:.6rem;background:#fff';
+    const ctx = cv.getContext('2d');
+    const img = ctx.createImageData(srcW, srcH);
+
+    // Parse pen hex colour for preview tinting
+    const hc  = pen.hex.replace('#','');
+    const pr  = parseInt(hc.slice(0,2),16);
+    const pg  = parseInt(hc.slice(2,4),16);
+    const pb  = parseInt(hc.slice(4,6),16);
+
+    for (let j=0; j<srcW*srcH; j++) {
+      if (pixels[j] > 0) {
+        img.data[j*4]   = pr;
+        img.data[j*4+1] = pg;
+        img.data[j*4+2] = pb;
+        img.data[j*4+3] = 255;
+      } else {
+        img.data[j*4]   = 255;
+        img.data[j*4+1] = 255;
+        img.data[j*4+2] = 255;
+        img.data[j*4+3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    card.appendChild(cv);
+    grid.appendChild(card);
+  });
+  el.appendChild(grid);
+}
+
+function setSepProgress(pct, msg) {
+  document.getElementById('sep-prog-fill').style.width = pct + '%';
+  document.getElementById('sep-status').textContent = msg;
+}
+
+// ── Override processImage to also build per-layer data ────────
+// Store the original processImage
+const _origProcessImage = processImage;
+
+// ── Build multi-pen PLG from separated layers ─────────────────
+function buildMultiPenPlg(cfg) {
+  if (layerPixels.length === 0) return null;
+
+  const mode   = document.getElementById('colour-mode').value;
+  const margin = parseFloat(document.getElementById('cfg-margin').value);
+  const drawW  = machineW - 2*margin;
+  const drawH  = machineH - 2*margin;
+  const scale  = Math.min(drawW/srcW, drawH/srcH);
+  const offX   = margin + (drawW - srcW*scale)/2;
+  const offY   = margin + (drawH - srcH*scale)/2;
+
+  // Collect all waypoints across all layers, interleaved with tool changes
+  const allWaypoints = [];
+  // Start at home
+  allWaypoints.push({x: machineW/2, y: 200, penDown: false, penIndex: 0,
+                      toolChange: false});
+
+  layerPixels.forEach((pixels, penIdx) => {
+    if (pixels.every(p => p === 0)) return; // empty layer — skip
+
+    // Tool change segment
+    allWaypoints.push({
+      x: machineW/2, y: 200,  // go to safe position during tool change
+      penDown: false, penIndex: penIdx, toolChange: true
+    });
+
+    // Get this pen's tool offset
+    const oxEl = document.getElementById(`ox${penIdx}`);
+    const oyEl = document.getElementById(`oy${penIdx}`);
+    const ox   = oxEl ? parseFloat(oxEl.value)||0 : 0;
+    const oy   = oyEl ? parseFloat(oyEl.value)||0 : 0;
+
+    // Apply offset to toMM: the pen tip reaches (x,y) when gondola centre
+    // is at (x - ox, y - oy), so we subtract the offset here so the
+    // planner targets the corrected gondola position.
+    const toMM = (px, py) => ({
+      x: offX + px*scale - ox,
+      y: offY + py*scale - oy
+    });
+
+    // Raster scan this layer
+    let lastX = null, lastY = null;
+    for (let row = 0; row < srcH; row++) {
+      const ltr  = (row % 2 === 0);
+      const segs = [];
+      let   rs   = null;
+      const scan = ltr
+        ? Array.from({length:srcW},(_,i)=>i)
+        : Array.from({length:srcW},(_,i)=>srcW-1-i);
+
+      for (const x of scan) {
+        const ink = pixels[row*srcW+x] > 0;
+        if (ink && rs===null) rs=x;
+        if (!ink && rs!==null) {
+          segs.push({x0:Math.min(rs,x-1),x1:Math.max(rs,x-1)});
+          rs=null;
+        }
+      }
+      if (rs!==null)
+        segs.push({x0:Math.min(rs,scan[scan.length-1]),
+                   x1:Math.max(rs,scan[scan.length-1])});
+
+      for (const seg of segs) {
+        const p0=toMM(seg.x0,row), p1=toMM(seg.x1,row);
+        if (lastX===null || Math.abs(p0.x-lastX)>0.1 || Math.abs(p0.y-lastY)>0.1) {
+          allWaypoints.push({x:p0.x,y:p0.y,penDown:false,penIndex:penIdx,toolChange:false});
+          allWaypoints.push({x:p0.x,y:p0.y,penDown:true, penIndex:penIdx,toolChange:false});
+        }
+        allWaypoints.push({x:p1.x,y:p1.y,penDown:true,penIndex:penIdx,toolChange:false});
+        lastX=p1.x; lastY=p1.y;
+      }
+    }
+
+    // Lift at end of layer
+    if (lastX!==null)
+      allWaypoints.push({x:lastX,y:lastY,penDown:false,penIndex:penIdx,toolChange:false});
+  });
+
+  // Build PLG with multi-pen support
+  const multiCfg = {
+    ...cfg,
+    penCount:   layerPixels.length,
+    layerCount: layerPixels.length,
+  };
+  return buildMultiPlgBuffer(allWaypoints, multiCfg);
+}
+
+// ── Extended buildPlgBuffer that handles tool changes ─────────
+function buildMultiPlgBuffer(waypoints, cfg) {
+  const { stepsPerMm, maxFeed, acceleration, junctionSpeed, machineWidth } = cfg;
+  if (waypoints.length < 2) return null;
+
+  function cartToCord(x, y) {
+    const lL=Math.sqrt(x*x+y*y), dx=machineWidth-x, lR=Math.sqrt(dx*dx+y*y);
+    return { stepsL:Math.round(lL*stepsPerMm), stepsR:Math.round(lR*stepsPerMm) };
+  }
+
+  const cordPos = waypoints.map(w => cartToCord(w.x, w.y));
+  const raw=[];
+  let prev=cordPos[0];
+
+  for (let i=1; i<waypoints.length; i++) {
+    const cur=cordPos[i], pw=waypoints[i-1], w=waypoints[i];
+    const dL=cur.stepsL-prev.stepsL, dR=cur.stepsR-prev.stepsR;
+    const dom=Math.max(Math.abs(dL),Math.abs(dR));
+    const lenMm=Math.sqrt((w.x-pw.x)**2+(w.y-pw.y)**2);
+
+    let flags=0;
+    if (w.penDown && !pw.penDown)  flags|=0x01; // PLG_PEN_DOWN
+    if (!w.penDown && pw.penDown)  flags|=0x02; // PLG_PEN_UP
+    if (!w.penDown)                flags|=0x08; // PLG_RAPID
+    if (w.toolChange)              flags|=PLG_TOOL_CHANGE;
+
+    if (dom>0||flags) {
+      raw.push({deltaL:dL,deltaR:dR,dominant:dom,lenMm,flags,
+                penIndex:w.penIndex||0});
+    }
+    prev=cur;
+  }
+
+  if (raw.length===0) return null;
+  raw[raw.length-1].flags|=0x04; // PLG_LAST
+
+  // Two-pass velocity planning (same as single-pen)
+  const n=raw.length, jv=junctionSpeed;
+  const entryV=new Float32Array(n).fill(jv);
+  const exitV =new Float32Array(n).fill(jv);
+  entryV[0]=jv;
+  for (let i=1;i<n;i++) {
+    const maxE=Math.sqrt(exitV[i-1]**2+2*acceleration*raw[i].lenMm);
+    entryV[i]=Math.min(maxFeed,maxE,jv);
+    const reach=Math.sqrt(entryV[i-1]**2+2*acceleration*raw[i-1].lenMm);
+    if (entryV[i]>reach) entryV[i]=reach;
+  }
+  exitV[n-1]=jv;
+  for (let i=n-2;i>=0;i--) {
+    const maxX=Math.sqrt(entryV[i+1]**2+2*acceleration*raw[i].lenMm);
+    exitV[i]=Math.min(maxFeed,maxX,jv);
+    const reach=Math.sqrt(entryV[i+1]**2+2*acceleration*raw[i].lenMm);
+    if (exitV[i]>reach) exitV[i]=reach;
+  }
+
+  const planned=raw.map((seg,i)=>{
+    const vE=Math.max(0.5,entryV[i]), vX=Math.max(0.5,exitV[i]);
+    const vC=Math.min(maxFeed,Math.sqrt(acceleration*seg.lenMm+0.5*(vE**2+vX**2)));
+    const dA=(vC**2-vE**2)/(2*acceleration), dD=(vC**2-vX**2)/(2*acceleration);
+    const fA=seg.lenMm>0?Math.min(1,dA/seg.lenMm):0;
+    const fD=seg.lenMm>0?Math.min(1-fA,dD/seg.lenMm):0;
+    return {
+      deltaL:seg.deltaL, deltaR:seg.deltaR, dominant:seg.dominant,
+      entryInterval:speedToInterval(vE,stepsPerMm),
+      cruiseInterval:speedToInterval(vC,stepsPerMm),
+      exitInterval:speedToInterval(vX,stepsPerMm),
+      accelSteps:Math.min(Math.round(fA*seg.dominant),65535),
+      decelSteps:Math.min(Math.round(fD*seg.dominant),65535),
+      flags:seg.flags, penIndex:seg.penIndex||0
+    };
+  });
+
+  let estMs=0;
+  for (const s of planned) {
+    if (!s.dominant) continue;
+    const cruise=s.dominant-s.accelSteps-s.decelSteps;
+    estMs+=s.accelSteps*(s.entryInterval+s.cruiseInterval)/2/1000;
+    estMs+=cruise*s.cruiseInterval/1000;
+    estMs+=s.decelSteps*(s.cruiseInterval+s.exitInterval)/2/1000;
+  }
+
+  const totalBytes=32+planned.length*20;
+  const buf=new ArrayBuffer(totalBytes);
+  const view=new DataView(buf);
+  let off=0;
+
+  PLG_MAGIC.forEach(b=>{view.setUint8(off++,b);});
+  view.setUint8(off++,PLG_VERSION);
+  view.setUint8(off++,cfg.penCount||1);
+  view.setUint8(off++,cfg.layerCount||1);
+  view.setUint8(off++,0);
+  view.setUint32(off,planned.length,true); off+=4;
+  view.setFloat32(off,cfg.machineWidth,true); off+=4;
+  view.setFloat32(off,cfg.machineHeight,true); off+=4;
+  view.setFloat32(off,stepsPerMm,true); off+=4;
+  view.setUint32(off,Math.round(estMs),true); off+=4;
+  off+=4;
+
+  for (const s of planned) {
+    view.setInt32(off,s.deltaL,true);off+=4;
+    view.setInt32(off,s.deltaR,true);off+=4;
+    view.setUint16(off,s.entryInterval,true);off+=2;
+    view.setUint16(off,s.cruiseInterval,true);off+=2;
+    view.setUint16(off,s.exitInterval,true);off+=2;
+    view.setUint16(off,s.accelSteps,true);off+=2;
+    view.setUint16(off,s.decelSteps,true);off+=2;
+    view.setUint8(off++,s.flags);
+    view.setUint8(off++,s.penIndex);
+  }
+
+  return {buffer:buf, segCount:planned.length, estMs:Math.round(estMs)};
+}
+
+// Hook processImage to also update colours tab
+const _piOrig = typeof processImage !== 'undefined' ? processImage : null;
+
+// Initialise colour UI on load
+window.addEventListener('load', ()=>{
+  onColourModeChange();
+});
 
 // Init
 onAlgChange();

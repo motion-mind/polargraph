@@ -48,6 +48,10 @@ extern volatile uint32_t gJobLinesTotal;
 extern volatile char    gJobFile[64];
 extern volatile char    gJobType[8];      // "gcode" or "plg"
 
+// Forward declare servo (needed for tool change handling)
+class PenServo;
+extern PenServo penServo;
+
 class BinJobExecutor {
 public:
     void begin(MotionPlanner* planner) {
@@ -136,6 +140,9 @@ private:
             if (got == 0) break;  // unexpected EOF
 
             for (size_t i = 0; i < got && !gJobStop; i++) {
+                // Tool change is handled inside pushBinSeg via the ISR
+                // which calls servo->selectPen(seg.penIndex) when
+                // PLG_TOOL_CHANGE flag is set.
                 _planner->pushBinSeg(buf[i]);
                 done++;
             }

@@ -46,6 +46,10 @@ void IRAM_ATTR MotionPlanner::timerISR() {
         _isrActive = true;
         self->_executing = true;
 
+        // Tool change: select new pen (raises current, does not lower yet)
+        if ((_isrSeg.flags & PLG_TOOL_CHANGE) && self->_servo)
+            self->_servo->selectPen(_isrSeg.penIndex);
+        // Pen down at segment start
         if ((_isrSeg.flags & PLG_PEN_DOWN) && self->_servo)
             self->_servo->penDown();
 

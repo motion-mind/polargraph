@@ -1,58 +1,56 @@
 #pragma once
 /**
- * PlgFormat.h — Polargraph Binary Job Format (.plg)
- * ══════════════════════════════════════════════════
- * Designed for direct streaming from LittleFS into the step ISR
- * with zero parsing, zero float math, and zero kinematics on-device.
+ * PlgFormat.h — Polargraph Binary Job Format (.plg) version 3
+ * Branch: feature/multi-pen
  *
- * All velocity planning, kinematics, and lookahead happen in the
- * browser before upload.  The firmware is a pure executor.
+ * Changes from v2:
+ *   - PLG_VERSION bumped to 3
+ *   - PlgHeader gains penCount field (was _pad1[0])
+ *   - PlgSeg._pad repurposed as penIndex (0–3)
+ *     penIndex = which physical pen this segment belongs to
+ *   - New flag: PLG_TOOL_CHANGE — gondola is repositioning between pens;
+ *     firmware raises current pen, selects new penIndex, then continues.
+ *   - PlgHeader.layerCount: number of colour layers in this job
  *
- * File layout:
- *   [PlgHeader]  — 32 bytes, magic + metadata
- *   [PlgSeg]*    — 20 bytes × segCount, the motion segments
+ * Pen selection protocol:
+ *   A PLG_TOOL_CHANGE segment carries the new penIndex in seg.penIndex.
+ *   The firmware executes the move (travel to the tool-change safe position
+ *   or directly to the first draw point) with all pens up, then calls
+ *   selectPen(penIndex).  The next PLG_PEN_DOWN lowers the new pen.
  *
- * Velocity encoding:
- *   Intervals stored as uint16_t µs/step.
- *   Range: 20µs (50 kHz, ~625 mm/s at 80 steps/mm)
- *          to 65535µs (~0.2 mm/s) — covers all practical speeds.
- *   Three intervals per segment: entry, cruise, exit.
- *   The ISR interpolates linearly between them across accelSteps/decelSteps.
- *
- * Pen events:
- *   Encoded in flags — no separate servo segments needed.
- *   PEN_DOWN fires at the START of the segment.
- *   PEN_UP   fires at the END   of the segment (after last step).
- *   This lets the servo move while the gondola is already in position.
- *
- * Coordinate tracking:
- *   finalStepsL / finalStepsR let the firmware update its absolute
- *   step position after each segment without accumulating delta errors.
+ * Tool offsets:
+ *   Kinematics are pre-applied in the browser.  Each pen's offset
+ *   (from Config::cfg.pens[i].offsetX/Y) is added to the Cartesian
+ *   waypoints before cord-length conversion, so the firmware needs no
+ *   offset logic at all — the deltas are already correct for each pen.
  */
 
 #include <stdint.h>
 
-// ── Magic & version ───────────────────────────────────────────
-constexpr uint8_t PLG_MAGIC[4]  = { 'P','L','G','1' };
-constexpr uint8_t PLG_VERSION   = 2;
+// ── Magic & version ────────────────────────────────────────────
+constexpr uint8_t PLG_MAGIC[4] = { 'P','L','G','1' };
+constexpr uint8_t PLG_VERSION  = 3;   // bumped from 2 for multi-pen
 
-// ── Flag bits ─────────────────────────────────────────────────
-constexpr uint8_t PLG_PEN_DOWN  = 0x01;  // lower pen at segment start
-constexpr uint8_t PLG_PEN_UP    = 0x02;  // raise pen at segment end
-constexpr uint8_t PLG_LAST      = 0x04;  // final segment in job
-constexpr uint8_t PLG_RAPID     = 0x08;  // travel move (pen already up)
+// ── Flag bits ──────────────────────────────────────────────────
+constexpr uint8_t PLG_PEN_DOWN    = 0x01;  // lower active pen at seg start
+constexpr uint8_t PLG_PEN_UP      = 0x02;  // raise active pen at seg end
+constexpr uint8_t PLG_LAST        = 0x04;  // final segment in job
+constexpr uint8_t PLG_RAPID       = 0x08;  // travel move (pen already up)
+constexpr uint8_t PLG_TOOL_CHANGE = 0x10;  // select pen[penIndex] after move
 
-// ── File header (32 bytes, pad to 8-byte alignment) ───────────
+// ── File header (32 bytes) ─────────────────────────────────────
 struct __attribute__((packed)) PlgHeader {
     uint8_t  magic[4];        // PLG_MAGIC
-    uint8_t  version;         // PLG_VERSION
-    uint8_t  _pad0[3];
-    uint32_t segCount;        // total number of PlgSeg records
-    float    machineWidth;    // mm — for validation
-    float    machineHeight;   // mm — for validation
+    uint8_t  version;         // PLG_VERSION (3)
+    uint8_t  penCount;        // number of pens used (1–4)
+    uint8_t  layerCount;      // number of colour layers
+    uint8_t  _pad0;
+    uint32_t segCount;        // total PlgSeg records
+    float    machineWidth;    // mm
+    float    machineHeight;   // mm
     float    stepsPerMm;      // steps/mm used during planning
-    uint32_t estDurationMs;   // estimated job duration (ms), 0=unknown
-    uint8_t  _pad1[4];        // reserved, must be zero
+    uint32_t estDurationMs;   // estimated duration, 0=unknown
+    uint8_t  _pad1[4];
 };
 static_assert(sizeof(PlgHeader) == 32, "PlgHeader must be 32 bytes");
 
@@ -60,24 +58,22 @@ static_assert(sizeof(PlgHeader) == 32, "PlgHeader must be 32 bytes");
 struct __attribute__((packed)) PlgSeg {
     int32_t  deltaL;          // left  cord step delta (signed)
     int32_t  deltaR;          // right cord step delta (signed)
-    uint16_t entryInterval;   // µs/step at segment start
-    uint16_t cruiseInterval;  // µs/step at cruise speed
-    uint16_t exitInterval;    // µs/step at segment end
-    uint16_t accelSteps;      // steps in acceleration ramp
-    uint16_t decelSteps;      // steps in deceleration ramp
-    uint8_t  flags;           // PLG_PEN_DOWN / PLG_PEN_UP / PLG_LAST
-    uint8_t  _pad;            // reserved
+    uint16_t entryInterval;   // µs/step at start
+    uint16_t cruiseInterval;  // µs/step at cruise
+    uint16_t exitInterval;    // µs/step at end
+    uint16_t accelSteps;
+    uint16_t decelSteps;
+    uint8_t  flags;           // see PLG_* constants above
+    uint8_t  penIndex;        // active pen (0–3); used when PLG_TOOL_CHANGE set
 };
 static_assert(sizeof(PlgSeg) == 20, "PlgSeg must be 20 bytes");
 
-// ── Computed dominant step count (inline, no storage needed) ──
 inline uint32_t plgDominant(const PlgSeg& s) {
     int32_t aL = s.deltaL < 0 ? -s.deltaL : s.deltaL;
     int32_t aR = s.deltaR < 0 ? -s.deltaR : s.deltaR;
     return (uint32_t)(aL > aR ? aL : aR);
 }
 
-// ── Validation helper ─────────────────────────────────────────
 inline bool plgHeaderValid(const PlgHeader& h) {
     return h.magic[0] == PLG_MAGIC[0]
         && h.magic[1] == PLG_MAGIC[1]

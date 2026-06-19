@@ -1,3 +1,7 @@
+# Polargraph Firmware — feature/multi-pen branch
+> **Branch:** `feature/multi-pen` — four independent pen servos, colour separation
+> **Base:** `main` (single-pen, all fixes applied)
+
 # Polargraph Firmware v4.0 — Fysetc E4
 
 A modern hanging pen-plotter controller for the
@@ -288,3 +292,54 @@ git push origin v1.2.3
 # GitHub Actions builds and creates a Release with .bin files attached
 # Flash via http://<ip>/update — no local tools needed
 ```
+
+---
+
+## Multi-pen wiring (feature/multi-pen branch)
+
+```
+E4 Header    GPIO   Pen    Servo signal
+─────────────────────────────────────────
+HEAT_E0       2     Pen 0  (top-left  in gondola)
+HEAT_BED      4     Pen 1  (top-right)
+FAN_E0       13     Pen 2  (bot-right)
+Z endstop    14     Pen 3  (bot-left)
+```
+
+Power all four servos from the board's 5V pins — do NOT use the
+heater/fan headers for power (those are 12/24V switched MOSFETs).
+
+### Gondola arrangement (top view)
+
+```
+┌────────────┐
+│  P0    P1  │
+│            │
+│  P3    P2  │
+└────────────┘
+```
+
+### Calibrating tool offsets
+
+With all pens loaded, measure the XY distance from gondola centre
+to each pen tip:
+
+```gcode
+M218 T0 X-10 Y-10   ; pen 0 is 10mm left and 10mm up from centre
+M218 T1 X10  Y-10   ; pen 1 is 10mm right, 10mm up
+M218 T2 X10  Y10    ; pen 2 is 10mm right, 10mm down
+M218 T3 X-10 Y10    ; pen 3 is 10mm left,  10mm down
+M500                 ; save
+```
+
+### Colour workflow
+
+1. Open `http://<ip>/image`
+2. Upload image → Process on **① Image** tab
+3. Switch to **② Colours** tab → choose CMYK or RGB mode → **Separate**
+4. Review per-layer previews
+5. **③ Export** → download `.plg` binary
+6. **④ Send** → Upload & Start
+
+The machine will print each layer in sequence, pausing between layers
+only long enough for the servo to switch pens.
