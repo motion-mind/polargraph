@@ -2,7 +2,7 @@
 > **Branch:** `feature/multi-pen` — four independent pen servos, colour separation
 > **Base:** `main` (single-pen, all fixes applied)
 
-# Polargraph Firmware v4.0 — Fysetc E4
+# Polargraph Firmware v0.10 — Fysetc E4
 
 A modern hanging pen-plotter controller for the
 [Fysetc E4](https://github.com/FYSETC/FYSETC-E4) (ESP32 + 4× TMC2209).
